@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>空間MP3プレイヤー</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="app">
+      <div class="edge-glow" aria-hidden="true"></div>
+      <header class="header">
+        <div class="brand">
+          <p class="eyebrow">Spatial MP3</p>
+          <h1>3D空間オーディオプレイヤー</h1>
+          <p class="sub">既存の楽曲を奥行きのある立体感へ。</p>
+        </div>
+        <div class="file-row">
+          <button class="btn ghost" id="load-btn" type="button">音声ファイルを読み込む</button>
+          <input
+            id="file-input"
+            type="file"
+            accept=".mp3,.m4a,.mp4,.webm,.opus,audio/mpeg,audio/mp4,audio/webm,video/mp4,video/webm"
+            hidden
+          />
+        </div>
+      </header>
+
+      <div class="content">
+        <section class="card info-card">
+          <div class="track-card">
+            <div class="art" aria-hidden="true"></div>
+            <div class="meta">
+              <div id="track-name" class="track-name">未読み込み</div>
+              <div id="track-hint" class="track-hint">MP3/M4A/WEBM/MP4を選択してください</div>
+            </div>
+          </div>
+        </section>
+        <section class="card viz-card">
+          <button class="viz-full-btn" id="viz-full-btn" type="button">全画面</button>
+          <div class="viz-wrap">
+            <div class="viz-frame">
+              <video id="audio" class="viz-media" preload="metadata" playsinline></video>
+              <canvas id="viz" width="1920" height="1080" aria-label="オーディオビジュアライザー"></canvas>
+              <div class="viz-hud" id="viz-hud">
+                <div class="viz-hud-title" id="viz-hud-title">未読み込み</div>
+                <div class="viz-hud-controls">
+                  <button id="hud-play" class="btn ghost mini" type="button">再生</button>
+                  <button id="hud-stop" class="btn ghost mini" type="button">停止</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="player">
+            <div class="transport">
+              <button id="play-btn" class="btn primary" type="button">
+                <span id="play-icon">再生</span>
+              </button>
+              <button id="stop-btn" class="btn ghost" type="button">停止</button>
+              <div class="time">
+                <span id="current-time">0:00</span>
+                <span class="slash">/</span>
+                <span id="duration">0:00</span>
+              </div>
+            </div>
+            <input id="seek" class="slider" type="range" min="0" max="100" value="0" step="0.01" />
+          </div>
+
+          <div class="mix">
+            <label class="field">
+              <span>音量</span>
+              <input id="volume" class="slider" type="range" min="0" max="1" value="0.85" step="0.01" />
+            </label>
+            <label class="field">
+              <span>奥行き</span>
+              <input id="depth" class="slider" type="range" min="0" max="100" value="70" step="1" />
+            </label>
+            <label class="field">
+              <span>フォーカス</span>
+              <input id="focus" class="slider" type="range" min="-100" max="100" value="10" step="1" />
+            </label>
+            <label class="field toggle">
+              <span>動き</span>
+              <input id="motion-toggle" type="checkbox" checked />
+              <span class="switch"></span>
+            </label>
+          </div>
+
+          <div class="mix">
+            <label class="field">
+              <span>初期反射</span>
+              <input id="early-mix" class="slider" type="range" min="0" max="140" value="85" step="1" />
+            </label>
+            <label class="field">
+              <span>残響長さ</span>
+              <input id="reverb-length" class="slider" type="range" min="60" max="160" value="110" step="1" />
+            </label>
+            <label class="field">
+              <span>残響トーン</span>
+              <input id="reverb-tone" class="slider" type="range" min="0" max="100" value="45" step="1" />
+            </label>
+            <label class="field">
+              <span>ビジュアライザー</span>
+              <div class="segmented" id="viz-theme">
+                <button type="button" data-theme="neon">Neon</button>
+                <button type="button" data-theme="prism">Prism</button>
+                <button type="button" data-theme="ember">Ember</button>
+              </div>
+            </label>
+          </div>
+
+          <div class="preset-section">
+            <div class="preset-header">
+              <div class="preset-title">
+                <h2>3Dプリセット</h2>
+                <button id="ab-toggle" class="btn ghost mini" type="button">A/B: 3D ON</button>
+              </div>
+              <p>空間サイズ・反射の密度・動きのタイプで分類。</p>
+            </div>
+            <div id="preset-grid" class="preset-grid"></div>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <script src="main.js"></script>
+  </body>
+</html>
