@@ -17,6 +17,7 @@
         </div>
         <div class="file-row">
           <button class="btn ghost" id="load-btn" type="button">音声ファイルを読み込む</button>
+          <button class="btn ghost mini" id="reset-btn" type="button">設定を初期化</button>
           <input
             id="file-input"
             type="file"
@@ -102,8 +103,17 @@
               <span>残響トーン</span>
               <input id="reverb-tone" class="slider" type="range" min="0" max="100" value="45" step="1" />
             </label>
-            <label class="field">
+            <label class="field toggle">
               <span>ビジュアライザー</span>
+              <input id="viz-toggle" type="checkbox" checked />
+              <span class="switch"></span>
+            </label>
+            <label class="field">
+              <span>動画ブレンド</span>
+              <input id="video-blend" class="slider" type="range" min="0" max="100" value="85" step="1" />
+            </label>
+            <label class="field">
+              <span>テーマ</span>
               <div class="segmented" id="viz-theme">
                 <button type="button" data-theme="neon">Neon</button>
                 <button type="button" data-theme="prism">Prism</button>

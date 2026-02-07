@@ -161,6 +161,7 @@ body {
   display: flex;
   align-items: center;
   gap: 12px;
+  flex-wrap: wrap;
 }
 
 .content {
@@ -191,6 +192,7 @@ body {
   background: transparent;
   position: relative;
   aspect-ratio: 16 / 9;
+  --video-opacity: 0;
 }
 
 .viz-full-btn {
@@ -254,6 +256,7 @@ body {
   inset: 0;
   pointer-events: none;
   z-index: 2;
+  transition: opacity 0.25s ease;
 }
 
 .viz-wrap {
@@ -292,13 +295,14 @@ body {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  opacity: 0;
+  opacity: var(--video-opacity);
   filter: saturate(1.05) contrast(1.05);
   z-index: 0;
+  transition: opacity 0.25s ease;
 }
 
-.viz-card.has-video .viz-media {
-  opacity: 0.85;
+.viz-card.has-video {
+  --video-opacity: 0.85;
 }
 
 .viz-card.has-video .viz-frame::before {
@@ -336,6 +340,10 @@ body {
   border: none;
 }
 
+.viz-card.viz-off #viz {
+  opacity: 0;
+}
+
 .viz-card:fullscreen .viz-full-btn,
 .viz-card.is-fullscreen .viz-full-btn {
   top: 16px;
@@ -370,6 +378,21 @@ body {
   color: var(--muted);
   font-size: 0.9rem;
   font-family: "Trebuchet MS", "Gill Sans", Candara, sans-serif;
+}
+
+.track-hint.is-error {
+  color: #ff9aa8;
+}
+
+.app.drop-active {
+  --edge-alpha: 0.42;
+  --edge-alpha-2: 0.3;
+  --edge-border: rgba(120, 240, 255, 0.7);
+  box-shadow:
+    var(--shadow),
+    0 0 0 1px rgba(120, 220, 255, 0.7),
+    0 0 40px rgba(72, 240, 255, 0.35),
+    0 0 35px rgba(255, 106, 168, 0.28);
 }
 
 .panel {
