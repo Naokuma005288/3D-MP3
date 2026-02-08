@@ -38,8 +38,8 @@ body {
 }
 
 .app {
-  --edge-alpha: 0.16;
-  --edge-alpha-2: 0.1;
+  --edge-alpha: 0.28;
+  --edge-alpha-2: 0.18;
   --edge-border: rgba(120, 160, 210, 0.25);
   --edge-spin: 0turn;
   width: min(92vw, 520px);
@@ -51,9 +51,9 @@ body {
   border-radius: var(--radius);
   box-shadow:
     var(--shadow),
-    0 0 0 1px rgba(120, 160, 210, 0.35),
-    0 0 26px rgba(72, 240, 255, var(--edge-alpha)),
-    0 0 22px rgba(255, 106, 168, var(--edge-alpha-2));
+    0 0 0 1px rgba(120, 160, 210, 0.42),
+    0 0 34px rgba(72, 240, 255, var(--edge-alpha)),
+    0 0 28px rgba(255, 106, 168, var(--edge-alpha-2));
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   gap: 16px;
@@ -65,6 +65,7 @@ body {
 }
 
 .edge-glow {
+  display: block;
   position: absolute;
   inset: 6px;
   border-radius: calc(var(--radius) - 6px);
@@ -72,9 +73,9 @@ body {
   background: conic-gradient(
     from var(--edge-spin),
     rgba(72, 240, 255, 0) 0deg,
-    rgba(72, 240, 255, 0.4) 80deg,
-    rgba(255, 106, 168, 0.35) 160deg,
-    rgba(72, 240, 255, 0.15) 240deg,
+    rgba(72, 240, 255, 0.58) 80deg,
+    rgba(255, 106, 168, 0.5) 160deg,
+    rgba(72, 240, 255, 0.24) 240deg,
     rgba(72, 240, 255, 0) 360deg
   );
   opacity: var(--edge-alpha);
@@ -96,13 +97,14 @@ body {
 
 .app::before,
 .app::after {
+  display: block;
   content: "";
   position: absolute;
   inset: auto;
   border-radius: 999px;
   filter: blur(0);
   z-index: 0;
-  opacity: 0.7;
+  opacity: 0.86;
   animation: drift 12s ease-in-out infinite alternate;
 }
 
@@ -111,7 +113,7 @@ body {
   height: 220px;
   top: -80px;
   right: -60px;
-  background: radial-gradient(circle, rgba(72, 240, 255, 0.5), transparent 70%);
+  background: radial-gradient(circle, rgba(72, 240, 255, 0.62), transparent 70%);
 }
 
 .app::after {
@@ -119,7 +121,7 @@ body {
   height: 260px;
   bottom: -110px;
   left: -80px;
-  background: radial-gradient(circle, rgba(255, 106, 168, 0.4), transparent 65%);
+  background: radial-gradient(circle, rgba(255, 106, 168, 0.54), transparent 65%);
 }
 
 .header,
@@ -127,6 +129,24 @@ body {
 .panel {
   position: relative;
   z-index: 1;
+}
+
+.version-badge {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  z-index: 2;
+  pointer-events: none;
+  border: 1px solid rgba(120, 160, 210, 0.42);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  color: rgba(236, 244, 255, 0.92);
+  background: rgba(8, 12, 22, 0.58);
+  font-family: "Trebuchet MS", "Gill Sans", Candara, sans-serif;
+  text-transform: uppercase;
+  box-shadow: 0 8px 22px rgba(2, 6, 16, 0.35);
 }
 
 .header {
@@ -385,14 +405,14 @@ body {
 }
 
 .app.drop-active {
-  --edge-alpha: 0.42;
-  --edge-alpha-2: 0.3;
+  --edge-alpha: 0.7;
+  --edge-alpha-2: 0.5;
   --edge-border: rgba(120, 240, 255, 0.7);
   box-shadow:
     var(--shadow),
-    0 0 0 1px rgba(120, 220, 255, 0.7),
-    0 0 40px rgba(72, 240, 255, 0.35),
-    0 0 35px rgba(255, 106, 168, 0.28);
+    0 0 0 1px rgba(120, 220, 255, 0.8),
+    0 0 56px rgba(72, 240, 255, 0.5),
+    0 0 44px rgba(255, 106, 168, 0.42);
 }
 
 .panel {

@@ -9,6 +9,7 @@
   <body>
     <div class="app">
       <div class="edge-glow" aria-hidden="true"></div>
+      <div class="version-badge" id="app-version" aria-label="アプリバージョン">v2.3</div>
       <header class="header">
         <div class="brand">
           <p class="eyebrow">Spatial MP3</p>
@@ -88,6 +89,18 @@
               <input id="motion-toggle" type="checkbox" checked />
               <span class="switch"></span>
             </label>
+            <label class="field">
+              <span>モーション強度</span>
+              <input
+                id="motion-intensity"
+                class="slider"
+                type="range"
+                min="0"
+                max="160"
+                value="90"
+                step="1"
+              />
+            </label>
           </div>
 
           <div class="mix">
@@ -102,6 +115,18 @@
             <label class="field">
               <span>残響トーン</span>
               <input id="reverb-tone" class="slider" type="range" min="0" max="100" value="45" step="1" />
+            </label>
+            <label class="field">
+              <span>EQ Bass</span>
+              <input id="eq-bass" class="slider" type="range" min="-12" max="12" value="3" step="1" />
+            </label>
+            <label class="field">
+              <span>EQ Mid</span>
+              <input id="eq-mid" class="slider" type="range" min="-12" max="12" value="0" step="1" />
+            </label>
+            <label class="field">
+              <span>EQ Treble</span>
+              <input id="eq-treble" class="slider" type="range" min="-12" max="12" value="1" step="1" />
             </label>
             <label class="field toggle">
               <span>ビジュアライザー</span>
@@ -137,5 +162,7 @@
     </div>
 
     <script src="main.js"></script>
+    <script src="audio-engine.js"></script>
+    <script src="app-ui.js"></script>
   </body>
 </html>
