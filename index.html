@@ -3,218 +3,114 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>空間MP3プレイヤー</title>
-    <link rel="stylesheet" href="style.css" />
+    <title>Spatial MP3 Launcher</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg0: #090d18;
+        --bg1: #121a2c;
+        --ink: #f4f7ff;
+        --muted: #9eabc7;
+        --line: rgba(120, 160, 210, 0.3);
+        --accent: #4be7ff;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100svh;
+        display: grid;
+        place-items: center;
+        background:
+          radial-gradient(circle at 20% 10%, rgba(70, 120, 255, 0.22), transparent 45%),
+          radial-gradient(circle at 80% 20%, rgba(255, 150, 104, 0.2), transparent 45%),
+          linear-gradient(160deg, var(--bg0), var(--bg1));
+        color: var(--ink);
+        font-family: "Yu Gothic", "Meiryo", sans-serif;
+        padding: 18px;
+      }
+      .shell {
+        width: min(920px, 96vw);
+        border: 1px solid var(--line);
+        border-radius: 20px;
+        padding: 22px;
+        background: rgba(12, 18, 32, 0.78);
+        backdrop-filter: blur(10px);
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: clamp(1.5rem, 2.6vw, 2rem);
+      }
+      .sub {
+        margin: 0 0 16px;
+        color: var(--muted);
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+      }
+      .card {
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 16px;
+        background: rgba(10, 14, 24, 0.75);
+      }
+      .card h2 {
+        margin: 0 0 8px;
+        font-size: 1.1rem;
+      }
+      .card p {
+        margin: 0 0 14px;
+        color: var(--muted);
+        line-height: 1.45;
+      }
+      .go {
+        display: inline-block;
+        border: 1px solid rgba(75, 231, 255, 0.55);
+        border-radius: 999px;
+        padding: 8px 14px;
+        color: var(--ink);
+        text-decoration: none;
+        background: linear-gradient(135deg, rgba(75, 231, 255, 0.2), rgba(249, 197, 107, 0.2));
+      }
+      .note {
+        margin-top: 14px;
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+      .ver {
+        display: inline-block;
+        margin-left: 8px;
+        border: 1px solid rgba(120, 160, 210, 0.45);
+        border-radius: 999px;
+        padding: 2px 8px;
+        font-size: 0.74rem;
+        color: rgba(236, 244, 255, 0.92);
+        background: rgba(8, 12, 22, 0.6);
+        vertical-align: middle;
+      }
+      @media (max-width: 740px) {
+        .grid { grid-template-columns: 1fr; }
+      }
+    </style>
   </head>
   <body>
-    <div class="app">
-      <div class="edge-glow" aria-hidden="true"></div>
-      <div class="version-badge" id="app-version" data-i18n-aria-label="version.aria">v2.5</div>
-      <div class="settings-anchor">
-        <button
-          class="btn ghost mini"
-          id="settings-btn"
-          type="button"
-          aria-haspopup="dialog"
-          aria-expanded="false"
-          data-i18n="buttons.settings"
-        >
-          設定
-        </button>
-        <div class="settings-panel" id="settings-panel" role="dialog" aria-modal="false" hidden>
-          <div class="settings-head">
-            <strong data-i18n="settings.title">設定</strong>
-            <button class="btn ghost mini" id="settings-close" type="button" data-i18n="buttons.close">
-              閉じる
-            </button>
-          </div>
-          <label class="field settings-field">
-            <span data-i18n="settings.language">言語</span>
-            <div class="segmented setting-segment" id="lang-segment">
-              <button type="button" data-lang="ja" data-i18n="settings.lang.ja">日本語</button>
-              <button type="button" data-lang="en" data-i18n="settings.lang.en">English</button>
-              <button type="button" data-lang="ko" data-i18n="settings.lang.ko">한국어</button>
-              <button type="button" data-lang="zh" data-i18n="settings.lang.zh">中文</button>
-            </div>
-          </label>
-          <label class="field settings-field">
-            <span data-i18n="settings.layout">UIレイアウト</span>
-            <div class="segmented setting-segment" id="layout-segment">
-              <button type="button" data-layout="vertical" data-i18n="settings.layoutVertical">縦</button>
-              <button type="button" data-layout="horizontal" data-i18n="settings.layoutHorizontal">
-                横
-              </button>
-            </div>
-          </label>
-        </div>
-      </div>
-      <header class="header">
-        <div class="brand">
-          <p class="eyebrow">Spatial MP3</p>
-          <h1 data-i18n="brand.title">3D空間オーディオプレイヤー</h1>
-          <p class="sub" data-i18n="brand.sub">既存の楽曲を奥行きのある立体感へ。</p>
-        </div>
-        <div class="file-row">
-          <button class="btn ghost" id="load-btn" type="button" data-i18n="buttons.load">
-            音声ファイルを読み込む
-          </button>
-          <button class="btn ghost mini" id="reset-btn" type="button" data-i18n="buttons.reset">
-            設定を初期化
-          </button>
-          <input
-            id="file-input"
-            type="file"
-            accept=".mp3,.m4a,.mp4,.webm,.opus,audio/mpeg,audio/mp4,audio/webm,video/mp4,video/webm"
-            hidden
-          />
-        </div>
-      </header>
-
-      <div class="content">
-        <section class="card info-card">
-          <div class="track-card">
-            <div class="art" aria-hidden="true"></div>
-            <div class="meta">
-              <div id="track-name" class="track-name">未読み込み</div>
-              <div id="track-hint" class="track-hint">MP3/M4A/WEBM/MP4を選択してください</div>
-            </div>
-          </div>
+    <main class="shell">
+      <h1>Spatial MP3 プレイヤー <span class="ver">v3.0</span></h1>
+      <p class="sub">起動するバージョンを選択してください。</p>
+      <div class="grid">
+        <section class="card">
+          <h2>通常版 (v3.0)</h2>
+          <p>3D空間処理・ビジュアライザー・プリセット・詳細設定を含むフル機能版です。</p>
+          <a class="go" href="./full.html">通常版を開く</a>
         </section>
-        <section class="card viz-card">
-          <button class="viz-full-btn" id="viz-full-btn" type="button">全画面</button>
-          <div class="viz-wrap">
-            <div class="viz-frame">
-              <video id="audio" class="viz-media" preload="metadata" playsinline></video>
-              <canvas
-                id="viz"
-                width="1920"
-                height="1080"
-                data-i18n-aria-label="canvas.aria"
-                aria-label="オーディオビジュアライザー"
-              ></canvas>
-              <div class="viz-hud" id="viz-hud">
-                <div class="viz-hud-title" id="viz-hud-title">未読み込み</div>
-                <div class="viz-hud-controls">
-                  <button id="hud-play" class="btn ghost mini" type="button" data-i18n="buttons.play">
-                    再生
-                  </button>
-                  <button id="hud-stop" class="btn ghost mini" type="button" data-i18n="buttons.stop">
-                    停止
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section class="panel">
-          <div class="player">
-            <div class="transport">
-              <button id="play-btn" class="btn primary" type="button">
-                <span id="play-icon">再生</span>
-              </button>
-              <button id="stop-btn" class="btn ghost" type="button" data-i18n="buttons.stop">停止</button>
-              <div class="time">
-                <span id="current-time">0:00</span>
-                <span class="slash">/</span>
-                <span id="duration">0:00</span>
-              </div>
-            </div>
-            <input id="seek" class="slider" type="range" min="0" max="100" value="0" step="0.01" />
-          </div>
-
-          <div class="mix">
-            <label class="field">
-              <span data-i18n="fields.volume">音量</span>
-              <input id="volume" class="slider" type="range" min="0" max="1" value="0.85" step="0.01" />
-            </label>
-            <label class="field">
-              <span data-i18n="fields.depth">奥行き</span>
-              <input id="depth" class="slider" type="range" min="0" max="100" value="70" step="1" />
-            </label>
-            <label class="field">
-              <span data-i18n="fields.focus">フォーカス</span>
-              <input id="focus" class="slider" type="range" min="-100" max="100" value="0" step="1" />
-            </label>
-            <label class="field toggle">
-              <span data-i18n="fields.motion">動き</span>
-              <input id="motion-toggle" type="checkbox" checked />
-              <span class="switch"></span>
-            </label>
-            <label class="field">
-              <span data-i18n="fields.motionIntensity">モーション強度</span>
-              <input
-                id="motion-intensity"
-                class="slider"
-                type="range"
-                min="0"
-                max="160"
-                value="90"
-                step="1"
-              />
-            </label>
-          </div>
-
-          <div class="mix">
-            <label class="field">
-              <span data-i18n="fields.earlyMix">初期反射</span>
-              <input id="early-mix" class="slider" type="range" min="0" max="140" value="85" step="1" />
-            </label>
-            <label class="field">
-              <span data-i18n="fields.reverbLength">残響長さ</span>
-              <input id="reverb-length" class="slider" type="range" min="60" max="160" value="110" step="1" />
-            </label>
-            <label class="field">
-              <span data-i18n="fields.reverbTone">残響トーン</span>
-              <input id="reverb-tone" class="slider" type="range" min="0" max="100" value="45" step="1" />
-            </label>
-            <label class="field">
-              <span data-i18n="fields.eqBass">EQ Bass</span>
-              <input id="eq-bass" class="slider" type="range" min="-12" max="12" value="3" step="1" />
-            </label>
-            <label class="field">
-              <span data-i18n="fields.eqMid">EQ Mid</span>
-              <input id="eq-mid" class="slider" type="range" min="-12" max="12" value="0" step="1" />
-            </label>
-            <label class="field">
-              <span data-i18n="fields.eqTreble">EQ Treble</span>
-              <input id="eq-treble" class="slider" type="range" min="-12" max="12" value="1" step="1" />
-            </label>
-            <label class="field toggle">
-              <span data-i18n="fields.visualizer">ビジュアライザー</span>
-              <input id="viz-toggle" type="checkbox" checked />
-              <span class="switch"></span>
-            </label>
-            <label class="field">
-              <span data-i18n="fields.videoBlend">動画ブレンド</span>
-              <input id="video-blend" class="slider" type="range" min="0" max="100" value="85" step="1" />
-            </label>
-            <label class="field">
-              <span data-i18n="fields.theme">テーマ</span>
-              <div class="segmented" id="viz-theme">
-                <button type="button" data-theme="neon">Neon</button>
-                <button type="button" data-theme="prism">Prism</button>
-                <button type="button" data-theme="ember">Ember</button>
-              </div>
-            </label>
-          </div>
-
-          <div class="preset-section">
-            <div class="preset-header">
-              <div class="preset-title">
-                <h2 data-i18n="preset.title">3Dプリセット</h2>
-                <button id="ab-toggle" class="btn ghost mini" type="button">A/B: 3D ON</button>
-              </div>
-              <p data-i18n="preset.sub">空間サイズ・反射の密度・動きのタイプで分類。</p>
-            </div>
-            <div id="preset-grid" class="preset-grid"></div>
-          </div>
+        <section class="card">
+          <h2>軽量版 Lite</h2>
+          <p>ビジュアライザーを省きつつ、3D音響処理は維持した軽量プレイヤーです。</p>
+          <a class="go" href="./lite.html">軽量版を開く</a>
         </section>
       </div>
-    </div>
-
-    <script src="main.js"></script>
-    <script src="audio-engine.js"></script>
-    <script src="app-ui.js"></script>
+      <p class="note">既存のフル版は `full.html` に保存済みです。</p>
+    </main>
   </body>
 </html>

@@ -83,6 +83,8 @@ function startVisualizer() {
 
   let edgeGlow = 0;
   let edgeSpin = 0;
+  const barCount = 48;
+  const barPeaks = new Float32Array(barCount);
 
   const draw = (now) => {
     if (!shouldRunLoop()) {
@@ -175,23 +177,6 @@ function startVisualizer() {
     canvasCtx.fillStyle = glow;
     canvasCtx.fillRect(0, 0, width, height);
 
-    const lerp = (a, b, t) => a + (b - a) * t;
-    const lineCount = 14;
-    const flow = (nowSec * (0.14 + beatRate * 0.46 + low * 0.32)) % 1;
-    canvasCtx.lineWidth = 1.2;
-    for (let i = 0; i < lineCount; i += 1) {
-      const z = (i / lineCount + flow) % 1;
-      const ease = z * z;
-      const y = horizon + ease * (floor - horizon);
-      const w = lerp(width * 0.18, width * 1.12, ease);
-      const alpha = (1 - z) * (0.12 + low * 0.28);
-      canvasCtx.strokeStyle = `hsla(${theme.gridHue}, 80%, 70%, ${alpha})`;
-      canvasCtx.beginPath();
-      canvasCtx.moveTo(centerX - w / 2, y);
-      canvasCtx.lineTo(centerX + w / 2, y);
-      canvasCtx.stroke();
-    }
-
     canvasCtx.save();
     canvasCtx.globalCompositeOperation = "lighter";
     canvasCtx.lineCap = "round";
@@ -247,7 +232,6 @@ function startVisualizer() {
     );
     canvasCtx.restore();
 
-    const barCount = 48;
     const barWidth = width / barCount;
     const barTop = floor - height * 0.02;
     const barMax = height * 0.18 * (0.7 + low * 0.8);
@@ -263,24 +247,55 @@ function startVisualizer() {
       canvasCtx.moveTo(x, barTop);
       canvasCtx.lineTo(x, barTop - h);
       canvasCtx.stroke();
+
+      const peakDecay = 0.012 + (1 - low) * 0.01;
+      barPeaks[i] = Math.max(value, barPeaks[i] - peakDecay);
+      const peakY = barTop - barPeaks[i] * barMax;
+      canvasCtx.strokeStyle = `hsla(${hue + value * 100}, 90%, 76%, ${0.2 + value * 0.62})`;
+      canvasCtx.lineWidth = Math.max(1, barWidth * 0.34);
+      canvasCtx.beginPath();
+      canvasCtx.moveTo(x - barWidth * 0.16, peakY);
+      canvasCtx.lineTo(x + barWidth * 0.16, peakY);
+      canvasCtx.stroke();
     }
 
-    const coreRadius = Math.min(width, height) * (0.08 + low * 0.12);
-    const core = canvasCtx.createRadialGradient(
-      centerX,
-      horizon,
-      0,
-      centerX,
-      horizon,
-      coreRadius * 3
-    );
-    core.addColorStop(0, `rgba(255, 255, 255, ${0.25 + low * 0.45})`);
-    core.addColorStop(0.35, `hsla(${theme.glowHue}, 85%, 60%, ${0.2 + mid * 0.2})`);
-    core.addColorStop(1, `hsla(${theme.glowHue}, 85%, 60%, 0)`);
-    canvasCtx.fillStyle = core;
+    canvasCtx.save();
+    canvasCtx.globalCompositeOperation = "lighter";
+    const wingCount = 34;
+    const wingAmp = height * (0.09 + mid * 0.13);
+    canvasCtx.lineWidth = 1.5;
+    canvasCtx.strokeStyle = `hsla(${hue + 22}, 88%, 72%, ${0.16 + high * 0.35})`;
     canvasCtx.beginPath();
-    canvasCtx.arc(centerX, horizon, coreRadius * 2.2, 0, Math.PI * 2);
-    canvasCtx.fill();
+    for (let i = 0; i < wingCount; i += 1) {
+      const t = i / (wingCount - 1);
+      const idx = Math.min(vizData.length - 1, Math.floor(t * 180));
+      const value = vizData[idx] / 255;
+      const x = t * width;
+      const wave =
+        Math.sin(t * Math.PI * 5 + nowSec * (0.55 + high * 0.9)) *
+        (5 + high * 10);
+      const y = horizon - value * wingAmp - wave;
+      if (i === 0) canvasCtx.moveTo(x, y);
+      else canvasCtx.lineTo(x, y);
+    }
+    canvasCtx.stroke();
+    canvasCtx.strokeStyle = `hsla(${hue - 18}, 86%, 70%, ${0.12 + mid * 0.24})`;
+    canvasCtx.beginPath();
+    for (let i = 0; i < wingCount; i += 1) {
+      const t = i / (wingCount - 1);
+      const idx = Math.min(vizData.length - 1, Math.floor(t * 180));
+      const value = vizData[idx] / 255;
+      const x = t * width;
+      const wave =
+        Math.sin(t * Math.PI * 4.2 + nowSec * (0.48 + low * 0.8) + 1.2) *
+        (3 + mid * 8);
+      const y = horizon + value * wingAmp * 0.45 + wave;
+      if (i === 0) canvasCtx.moveTo(x, y);
+      else canvasCtx.lineTo(x, y);
+    }
+    canvasCtx.stroke();
+
+    canvasCtx.restore();
 
   };
   vizLoopId = requestAnimationFrame(draw);

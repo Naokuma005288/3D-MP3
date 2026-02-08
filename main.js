@@ -41,7 +41,7 @@ const settingsClose = document.getElementById("settings-close");
 const langSegment = document.getElementById("lang-segment");
 const layoutSegment = document.getElementById("layout-segment");
 
-const APP_VERSION = "v2.5"; // Update this value on each release.
+const APP_VERSION = "v3.0"; // Update this value on each release.
 const EARLY_COUNT = 6;
 const SETTINGS_KEY = "spatial-mp3-player-settings-v1";
 const SUPPORTED_FILE_RE = /\.(mp3|m4a|mp4|webm|opus|ogg|wav)$/i;
