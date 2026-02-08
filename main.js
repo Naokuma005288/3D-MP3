@@ -35,8 +35,13 @@ const vizTheme = document.getElementById("viz-theme");
 const vizToggle = document.getElementById("viz-toggle");
 const videoBlend = document.getElementById("video-blend");
 const versionBadge = document.getElementById("app-version");
+const settingsBtn = document.getElementById("settings-btn");
+const settingsPanel = document.getElementById("settings-panel");
+const settingsClose = document.getElementById("settings-close");
+const langSegment = document.getElementById("lang-segment");
+const layoutSegment = document.getElementById("layout-segment");
 
-const APP_VERSION = "v2.3"; // Update this value on each release.
+const APP_VERSION = "v2.5"; // Update this value on each release.
 const EARLY_COUNT = 6;
 const SETTINGS_KEY = "spatial-mp3-player-settings-v1";
 const SUPPORTED_FILE_RE = /\.(mp3|m4a|mp4|webm|opus|ogg|wav)$/i;
@@ -45,7 +50,7 @@ const VOLUME_STEP = 0.05;
 const DEFAULT_SETTINGS = {
   volume: "0.85",
   depth: "70",
-  focus: "10",
+  focus: "0",
   motionToggle: true,
   motionIntensity: "90",
   eqBass: "3",
@@ -59,7 +64,11 @@ const DEFAULT_SETTINGS = {
   theme: "neon",
   bypass3D: false,
   presetId: "studio",
+  language: "ja",
+  layout: "vertical",
 };
+const SUPPORTED_LANGUAGES = ["ja", "en", "ko", "zh"];
+const SUPPORTED_LAYOUTS = ["vertical", "horizontal"];
 const DISTANCE_MODEL = {
   near: 0.8,
   far: 4.1,
@@ -70,6 +79,13 @@ const DISTANCE_MODEL = {
   reverbNear: 0.4,
   reverbFar: 1.62,
 };
+const STEREO_TUNE = {
+  sideGainBoost: 1.12,
+  leftGainBias: 1.08,
+  rightGainBias: 0.94,
+  spreadBoost: 1.2,
+  leftPanBias: 0.04,
+};
 const AIR_ABSORPTION = {
   low: { factor: 0.05, minHz: 14500 },
   mid: { factor: 0.14, minHz: 8200 },
@@ -78,10 +94,17 @@ const AIR_ABSORPTION = {
 const RESONANCE_COMP = {
   lowNear: 1.0,
   lowFar: 1.28,
-  vocalNear: 1.0,
-  vocalFar: 1.18,
+  vocalNear: 1.08,
+  vocalFar: 1.34,
   reverbNear: 1.0,
   reverbFar: 1.2,
+};
+const VOCAL_CLARITY = {
+  midBoost: 1.12,
+  sideAttenuation: 0.9,
+  earlyAttenuation: 0.9,
+  reverbAttenuation: 0.86,
+  presenceBoostDb: 1.6,
 };
 const WASM_MATH_SCALE = 1000;
 const DIRECT_BANDS = [
@@ -103,9 +126,9 @@ const DIRECT_BANDS = [
     role: "vocal",
     filters: [
       { type: "highpass", frequency: 260, Q: 0.7 },
-      { type: "lowpass", frequency: 2400, Q: 0.7 },
+      { type: "lowpass", frequency: 3600, Q: 0.7 },
     ],
-    gain: 1.0,
+    gain: 1.14,
     spread: 0.08,
     elevation: 0,
     depth: 0,
@@ -206,6 +229,9 @@ let beatPulseSmooth = 0;
 let beatPulseBlend = 0;
 let beatPulseLastTime = 0;
 let currentFileHint = "";
+let currentLanguage = DEFAULT_SETTINGS.language;
+let currentLayout = DEFAULT_SETTINGS.layout;
+let hasLoadedTrack = false;
 
 const vizThemes = [
   {
@@ -432,6 +458,430 @@ const presets = [
   },
 ];
 
+const TRANSLATIONS = {
+  ja: {
+    meta: { title: "空間MP3プレイヤー" },
+    version: { aria: "アプリバージョン" },
+    brand: {
+      title: "3D空間オーディオプレイヤー",
+      sub: "既存の楽曲を奥行きのある立体感へ。",
+    },
+    buttons: {
+      load: "音声ファイルを読み込む",
+      reset: "設定を初期化",
+      settings: "設定",
+      close: "閉じる",
+      fullscreen: "全画面",
+      fullscreenClose: "閉じる",
+      play: "再生",
+      pause: "一時停止",
+      stop: "停止",
+    },
+    canvas: { aria: "オーディオビジュアライザー" },
+    fields: {
+      volume: "音量",
+      depth: "奥行き",
+      focus: "フォーカス",
+      motion: "動き",
+      motionIntensity: "モーション強度",
+      earlyMix: "初期反射",
+      reverbLength: "残響長さ",
+      reverbTone: "残響トーン",
+      eqBass: "EQ Bass",
+      eqMid: "EQ Mid",
+      eqTreble: "EQ Treble",
+      visualizer: "ビジュアライザー",
+      videoBlend: "動画ブレンド",
+      theme: "テーマ",
+    },
+    preset: {
+      title: "3Dプリセット",
+      sub: "空間サイズ・反射の密度・動きのタイプで分類。",
+    },
+    settings: {
+      title: "設定",
+      language: "言語",
+      layout: "UIレイアウト",
+      lang: {
+        ja: "日本語",
+        en: "English",
+        ko: "한국어",
+        zh: "中文",
+      },
+      layoutVertical: "縦",
+      layoutHorizontal: "横",
+    },
+    track: {
+      unloaded: "未読み込み",
+      selectFile: "MP3/M4A/WEBM/MP4を選択してください",
+    },
+    hint: {
+      playFailed: "再生を開始できませんでした",
+      unsupported: "未対応の形式です。MP3/M4A/WEBM/MP4等を選択してください",
+      fileError: "このファイルは再生できませんでした",
+      settingsReset: "設定を初期化しました",
+      bpmExact: "BPM {value}",
+      bpmApprox: "BPM~{value}",
+    },
+    ab: {
+      on: "A/B: 3D ON",
+      off: "A/B: 3D OFF",
+    },
+    presets: {
+      studio: { name: "スタジオ・フォーカス", desc: "近距離でくっきり" },
+      hall: { name: "ワイド・ホール", desc: "広がりとバランス" },
+      club: { name: "クラブ・パルス", desc: "短い残響でパンチ" },
+      orbit: { name: "オービット", desc: "動くワイドステージ" },
+      cathedral: { name: "カテドラル", desc: "高く豊かな残響" },
+      cinema: { name: "シネマティック", desc: "巨大で包み込む" },
+      hyper: { name: "ハイパースペース", desc: "超空間の伸び" },
+      arena: { name: "アリーナ・サージ", desc: "巨大会場の圧" },
+      void: { name: "ディープ・ヴォイド", desc: "深い虚空の残響" },
+    },
+  },
+  en: {
+    meta: { title: "Spatial MP3 Player" },
+    version: { aria: "App version" },
+    brand: {
+      title: "3D Spatial Audio Player",
+      sub: "Turn existing tracks into a deep 3D sound stage.",
+    },
+    buttons: {
+      load: "Load audio file",
+      reset: "Reset settings",
+      settings: "Settings",
+      close: "Close",
+      fullscreen: "Fullscreen",
+      fullscreenClose: "Exit",
+      play: "Play",
+      pause: "Pause",
+      stop: "Stop",
+    },
+    canvas: { aria: "Audio visualizer" },
+    fields: {
+      volume: "Volume",
+      depth: "Depth",
+      focus: "Focus",
+      motion: "Motion",
+      motionIntensity: "Motion Intensity",
+      earlyMix: "Early Reflections",
+      reverbLength: "Reverb Length",
+      reverbTone: "Reverb Tone",
+      eqBass: "EQ Bass",
+      eqMid: "EQ Mid",
+      eqTreble: "EQ Treble",
+      visualizer: "Visualizer",
+      videoBlend: "Video Blend",
+      theme: "Theme",
+    },
+    preset: {
+      title: "3D Presets",
+      sub: "Classified by room size, reflection density, and motion type.",
+    },
+    settings: {
+      title: "Settings",
+      language: "Language",
+      layout: "UI Layout",
+      lang: {
+        ja: "Japanese",
+        en: "English",
+        ko: "Korean",
+        zh: "Chinese",
+      },
+      layoutVertical: "Vertical",
+      layoutHorizontal: "Horizontal",
+    },
+    track: {
+      unloaded: "Not loaded",
+      selectFile: "Select MP3/M4A/WEBM/MP4",
+    },
+    hint: {
+      playFailed: "Could not start playback",
+      unsupported: "Unsupported format. Choose MP3/M4A/WEBM/MP4",
+      fileError: "This file could not be played",
+      settingsReset: "Settings were reset",
+      bpmExact: "BPM {value}",
+      bpmApprox: "BPM~{value}",
+    },
+    ab: {
+      on: "A/B: 3D ON",
+      off: "A/B: 3D OFF",
+    },
+    presets: {
+      studio: { name: "Studio Focus", desc: "Close and crisp" },
+      hall: { name: "Wide Hall", desc: "Balanced spaciousness" },
+      club: { name: "Club Pulse", desc: "Punchy short reverb" },
+      orbit: { name: "Orbit", desc: "Moving wide stage" },
+      cathedral: { name: "Cathedral", desc: "Tall and rich reverb" },
+      cinema: { name: "Cinematic", desc: "Large immersive space" },
+      hyper: { name: "Hyperspace", desc: "Expanded spatial stretch" },
+      arena: { name: "Arena Surge", desc: "Big venue pressure" },
+      void: { name: "Deep Void", desc: "Dark long-tail reverb" },
+    },
+  },
+  ko: {
+    meta: { title: "공간 MP3 플레이어" },
+    version: { aria: "앱 버전" },
+    brand: {
+      title: "3D 공간 오디오 플레이어",
+      sub: "기존 곡을 더 깊은 3D 공간감으로 확장합니다.",
+    },
+    buttons: {
+      load: "오디오 파일 불러오기",
+      reset: "설정 초기화",
+      settings: "설정",
+      close: "닫기",
+      fullscreen: "전체화면",
+      fullscreenClose: "닫기",
+      play: "재생",
+      pause: "일시정지",
+      stop: "정지",
+    },
+    canvas: { aria: "오디오 비주얼라이저" },
+    fields: {
+      volume: "볼륨",
+      depth: "깊이",
+      focus: "포커스",
+      motion: "모션",
+      motionIntensity: "모션 강도",
+      earlyMix: "초기 반사",
+      reverbLength: "리버브 길이",
+      reverbTone: "리버브 톤",
+      eqBass: "EQ 저역",
+      eqMid: "EQ 중역",
+      eqTreble: "EQ 고역",
+      visualizer: "비주얼라이저",
+      videoBlend: "비디오 블렌드",
+      theme: "테마",
+    },
+    preset: {
+      title: "3D 프리셋",
+      sub: "공간 크기, 반사 밀도, 모션 타입별로 구성했습니다.",
+    },
+    settings: {
+      title: "설정",
+      language: "언어",
+      layout: "UI 레이아웃",
+      lang: {
+        ja: "일본어",
+        en: "영어",
+        ko: "한국어",
+        zh: "중국어",
+      },
+      layoutVertical: "세로",
+      layoutHorizontal: "가로",
+    },
+    track: {
+      unloaded: "로드되지 않음",
+      selectFile: "MP3/M4A/WEBM/MP4 파일을 선택하세요",
+    },
+    hint: {
+      playFailed: "재생을 시작할 수 없습니다",
+      unsupported: "지원되지 않는 형식입니다. MP3/M4A/WEBM/MP4를 선택하세요",
+      fileError: "이 파일은 재생할 수 없습니다",
+      settingsReset: "설정을 초기화했습니다",
+      bpmExact: "BPM {value}",
+      bpmApprox: "BPM~{value}",
+    },
+    ab: {
+      on: "A/B: 3D ON",
+      off: "A/B: 3D OFF",
+    },
+    presets: {
+      studio: { name: "스튜디오 포커스", desc: "근거리 선명도" },
+      hall: { name: "와이드 홀", desc: "넓고 균형 잡힌 공간" },
+      club: { name: "클럽 펄스", desc: "짧은 잔향의 펀치감" },
+      orbit: { name: "오비트", desc: "움직이는 와이드 스테이지" },
+      cathedral: { name: "캐시드럴", desc: "높고 풍부한 잔향" },
+      cinema: { name: "시네마틱", desc: "크고 감싸는 공간" },
+      hyper: { name: "하이퍼스페이스", desc: "초공간 확장감" },
+      arena: { name: "아레나 서지", desc: "대형 공연장 압력감" },
+      void: { name: "딥 보이드", desc: "깊은 공허의 잔향" },
+    },
+  },
+  zh: {
+    meta: { title: "空间 MP3 播放器" },
+    version: { aria: "应用版本" },
+    brand: {
+      title: "3D 空间音频播放器",
+      sub: "把现有歌曲扩展成更有纵深的 3D 声场。",
+    },
+    buttons: {
+      load: "加载音频文件",
+      reset: "重置设置",
+      settings: "设置",
+      close: "关闭",
+      fullscreen: "全屏",
+      fullscreenClose: "退出",
+      play: "播放",
+      pause: "暂停",
+      stop: "停止",
+    },
+    canvas: { aria: "音频可视化" },
+    fields: {
+      volume: "音量",
+      depth: "纵深",
+      focus: "聚焦",
+      motion: "动态",
+      motionIntensity: "动态强度",
+      earlyMix: "早期反射",
+      reverbLength: "混响长度",
+      reverbTone: "混响音色",
+      eqBass: "EQ 低频",
+      eqMid: "EQ 中频",
+      eqTreble: "EQ 高频",
+      visualizer: "可视化",
+      videoBlend: "视频混合",
+      theme: "主题",
+    },
+    preset: {
+      title: "3D 预设",
+      sub: "按空间大小、反射密度和动态类型分类。",
+    },
+    settings: {
+      title: "设置",
+      language: "语言",
+      layout: "UI 布局",
+      lang: {
+        ja: "日语",
+        en: "英语",
+        ko: "韩语",
+        zh: "中文",
+      },
+      layoutVertical: "竖向",
+      layoutHorizontal: "横向",
+    },
+    track: {
+      unloaded: "未加载",
+      selectFile: "请选择 MP3/M4A/WEBM/MP4 文件",
+    },
+    hint: {
+      playFailed: "无法开始播放",
+      unsupported: "不支持的格式。请选择 MP3/M4A/WEBM/MP4",
+      fileError: "该文件无法播放",
+      settingsReset: "设置已重置",
+      bpmExact: "BPM {value}",
+      bpmApprox: "BPM~{value}",
+    },
+    ab: {
+      on: "A/B: 3D ON",
+      off: "A/B: 3D OFF",
+    },
+    presets: {
+      studio: { name: "录音室聚焦", desc: "近场清晰" },
+      hall: { name: "宽阔大厅", desc: "均衡开阔" },
+      club: { name: "俱乐部脉冲", desc: "短混响冲击感" },
+      orbit: { name: "轨道", desc: "动态宽舞台" },
+      cathedral: { name: "大教堂", desc: "高挑丰润混响" },
+      cinema: { name: "电影感", desc: "巨大包围感" },
+      hyper: { name: "超空间", desc: "超空间延展" },
+      arena: { name: "竞技场激流", desc: "大型场馆压迫感" },
+      void: { name: "深空虚域", desc: "深邃虚空混响" },
+    },
+  },
+};
+
+function getTranslationValue(key) {
+  const dictionary = TRANSLATIONS[currentLanguage] || TRANSLATIONS[DEFAULT_SETTINGS.language];
+  return key.split(".").reduce((value, part) => {
+    if (value && typeof value === "object" && part in value) return value[part];
+    return undefined;
+  }, dictionary);
+}
+
+function fillTemplate(template, vars) {
+  return template.replace(/\{(\w+)\}/g, (_, token) => `${vars[token] ?? ""}`);
+}
+
+function t(key, vars = {}, fallback = key) {
+  const value = getTranslationValue(key);
+  if (typeof value !== "string") return fallback;
+  return fillTemplate(value, vars);
+}
+
+function getPresetName(preset) {
+  return t(`presets.${preset.id}.name`, {}, preset.name);
+}
+
+function getPresetDescription(preset) {
+  return t(`presets.${preset.id}.desc`, {}, preset.desc);
+}
+
+function updateLanguageButtons() {
+  if (!langSegment) return;
+  langSegment.querySelectorAll("button[data-lang]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.lang === currentLanguage);
+  });
+}
+
+function updateLayoutButtons() {
+  if (!layoutSegment) return;
+  layoutSegment.querySelectorAll("button[data-layout]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.layout === currentLayout);
+  });
+}
+
+function applyLayout() {
+  if (app) {
+    app.classList.toggle("layout-horizontal", currentLayout === "horizontal");
+  }
+  updateLayoutButtons();
+  if (typeof resizeCanvas === "function") resizeCanvas();
+}
+
+function applyLocalizedStaticText() {
+  document.documentElement.lang = currentLanguage;
+  document.title = t("meta.title", {}, document.title);
+
+  document.querySelectorAll("[data-i18n]").forEach((node) => {
+    const key = node.dataset.i18n;
+    if (!key) return;
+    node.textContent = t(key, {}, node.textContent);
+  });
+
+  document.querySelectorAll("[data-i18n-aria-label]").forEach((node) => {
+    const key = node.dataset.i18nAriaLabel;
+    if (!key) return;
+    node.setAttribute("aria-label", t(key, {}, node.getAttribute("aria-label") || ""));
+  });
+}
+
+function applyTrackPlaceholders() {
+  if (hasLoadedTrack) return;
+  if (trackName) trackName.textContent = t("track.unloaded");
+  if (hudTitle) hudTitle.textContent = t("track.unloaded");
+  if (!currentFileHint && trackHint && !trackHint.classList.contains("is-error")) {
+    setTrackHint(t("track.selectFile"));
+  }
+}
+
+function applyLanguage() {
+  if (!SUPPORTED_LANGUAGES.includes(currentLanguage)) {
+    currentLanguage = DEFAULT_SETTINGS.language;
+  }
+  applyLocalizedStaticText();
+  applyTrackPlaceholders();
+  updateLanguageButtons();
+  if (typeof updatePlayState === "function") updatePlayState();
+  if (typeof syncFullscreenState === "function") syncFullscreenState();
+  if (typeof updateBypassButton === "function") updateBypassButton();
+  if (typeof buildPresetButtons === "function") buildPresetButtons();
+}
+
+function setLanguage(language, shouldPersist = true) {
+  if (!SUPPORTED_LANGUAGES.includes(language)) return;
+  currentLanguage = language;
+  applyLanguage();
+  if (shouldPersist) saveSettings();
+}
+
+function setLayout(layout, shouldPersist = true) {
+  if (!SUPPORTED_LAYOUTS.includes(layout)) return;
+  currentLayout = layout;
+  applyLayout();
+  if (shouldPersist) saveSettings();
+}
+
 function formatTime(seconds) {
   if (!Number.isFinite(seconds)) return "0:00";
   const mins = Math.floor(seconds / 60);
@@ -629,7 +1079,10 @@ function updateBpmHint(nowSec) {
   }
   const rounded = Math.round(bpmEstimate);
   if (rounded === lastBpmUiValue) return;
-  const suffix = bpmConfidence >= 0.72 ? `BPM ${rounded}` : `BPM~${rounded}`;
+  const suffix =
+    bpmConfidence >= 0.72
+      ? t("hint.bpmExact", { value: rounded }, `BPM ${rounded}`)
+      : t("hint.bpmApprox", { value: rounded }, `BPM~${rounded}`);
   setTrackHint(`${currentFileHint} | ${suffix}`);
   lastBpmUiValue = rounded;
 }
@@ -656,6 +1109,8 @@ function getSettingsSnapshot() {
     theme: currentThemeId,
     bypass3D,
     presetId: currentPreset?.id ?? pendingPresetId ?? DEFAULT_SETTINGS.presetId,
+    language: currentLanguage,
+    layout: currentLayout,
   };
 }
 
@@ -773,6 +1228,12 @@ function restoreSettings() {
   if (typeof parsed.presetId === "string" && isPresetIdValid(parsed.presetId)) {
     pendingPresetId = parsed.presetId;
   }
+  if (typeof parsed.language === "string" && SUPPORTED_LANGUAGES.includes(parsed.language)) {
+    currentLanguage = parsed.language;
+  }
+  if (typeof parsed.layout === "string" && SUPPORTED_LAYOUTS.includes(parsed.layout)) {
+    currentLayout = parsed.layout;
+  }
   isRestoringSettings = false;
 }
 
@@ -799,8 +1260,12 @@ function resetSettings() {
   currentThemeId = DEFAULT_SETTINGS.theme;
   bypass3D = DEFAULT_SETTINGS.bypass3D;
   pendingPresetId = DEFAULT_SETTINGS.presetId;
+  currentLanguage = DEFAULT_SETTINGS.language;
+  currentLayout = DEFAULT_SETTINGS.layout;
   isRestoringSettings = false;
 
+  applyLayout();
+  applyLanguage();
   updateThemeButtons();
   updateBypassButton();
   setVisualizerEnabled(vizToggle ? vizToggle.checked : true);
@@ -813,7 +1278,7 @@ function resetSettings() {
   } else {
     updatePresetButtons();
   }
-  setTrackHint("設定を初期化しました");
+  setTrackHint(t("hint.settingsReset", {}, "設定を初期化しました"));
   saveSettings();
 }
 

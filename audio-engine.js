@@ -1,4 +1,5 @@
 // Audio graph and spatial motion engine.
+
 function ensureAudio() {
   if (audioCtx) return;
   audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -331,25 +332,23 @@ function setListenerOrientation(forward, up) {
   }
 }
 
-function updateListenerPose(time, beatPulse) {
+function updateListenerPose(time) {
   if (!audioCtx) return;
   const focusOffset = (Number(focus.value) / 100) * 0.35;
-  const motionIntensityFactor = getMotionIntensityFactor();
-  const motionActive =
-    motionToggle.checked && baseState.motion.type !== "none" && motionIntensityFactor > 0.01;
+  const motionScale = getMotionIntensityFactor();
+  const motionActive = motionToggle.checked && baseState.motion.type !== "none";
   const motion = baseState.motion;
   const depthFactor = getDepthFactor();
-  const intensityBoost = 0.55 + motionIntensityFactor * 0.75;
   const speed = motionActive
-    ? motion.speed * (0.76 + depthFactor * 0.68 + beatPulse * 0.18) * intensityBoost
+    ? motion.speed * (0.7 + depthFactor * 0.6) * (0.45 + motionScale * 0.55)
     : 0;
-  const poseBoost = (0.68 + depthFactor * 0.82 + beatPulse * 0.2) * intensityBoost;
+  const poseBoost = 0.6 + depthFactor * 0.7;
   const yaw =
     focusOffset +
     (motion.type === "orbit"
-      ? Math.sin(time * speed * Math.PI * 2) * 0.11 * poseBoost
+      ? Math.sin(time * speed * Math.PI * 2) * 0.08 * poseBoost
       : 0);
-  const pitch = motionActive ? Math.sin(time * speed * Math.PI) * 0.055 * poseBoost : 0;
+  const pitch = motionActive ? Math.sin(time * speed * Math.PI) * 0.04 * poseBoost : 0;
   const cosPitch = Math.cos(pitch);
   const forward = {
     x: Math.sin(yaw) * cosPitch,
@@ -359,13 +358,8 @@ function updateListenerPose(time, beatPulse) {
   const up = { x: 0, y: 1, z: 0 };
   setListenerOrientation(forward, up);
 
-  const bob = motionActive
-    ? Math.sin(time * speed * Math.PI * 2) * (0.016 + beatPulse * 0.005) * intensityBoost
-    : 0;
-  const swayX = motionActive
-    ? Math.sin(time * speed * Math.PI * 1.3) * 0.014 * (0.75 + motionIntensityFactor * 0.9)
-    : 0;
-  setListenerPosition(swayX, bob, 0);
+  const bob = motionActive ? Math.sin(time * speed * Math.PI * 2) * 0.015 : 0;
+  setListenerPosition(0, bob, 0);
 }
 
 function buildEarlyPositions(config) {
@@ -520,16 +514,26 @@ function updateMixGains(distance = lastDirectDistance) {
   if (accompanimentLeftGain && accompanimentRightGain) {
     const sideBase = bypass3D ? 0.62 : 0.48 + (1 - depthFactor) * 0.24;
     const sideDistanceTilt = bypass3D ? 1 : 1 - profile.distanceNorm * 0.08;
-    const sideGain = sideBase * sideDistanceTilt;
-    accompanimentLeftGain.gain.setValueAtTime(sideGain, audioCtx.currentTime);
-    accompanimentRightGain.gain.setValueAtTime(sideGain, audioCtx.currentTime);
+    const sideGain =
+      sideBase *
+      sideDistanceTilt *
+      STEREO_TUNE.sideGainBoost *
+      (bypass3D ? 1 : VOCAL_CLARITY.sideAttenuation);
+    accompanimentLeftGain.gain.setValueAtTime(
+      sideGain * STEREO_TUNE.leftGainBias,
+      audioCtx.currentTime
+    );
+    accompanimentRightGain.gain.setValueAtTime(
+      sideGain * STEREO_TUNE.rightGainBias,
+      audioCtx.currentTime
+    );
   }
   directBands.forEach((band) => {
     let gainValue = band.config.gain;
     if (band.config.id === "low") {
       gainValue *= bypass3D ? 1 : resonance.low;
     } else if (band.config.id === "mid") {
-      gainValue *= bypass3D ? 1 : resonance.vocal;
+      gainValue *= bypass3D ? 1 : resonance.vocal * VOCAL_CLARITY.midBoost;
     }
     if (band.config.id === "high") {
       gainValue *= 0.92 + depthFactor * 0.42;
@@ -557,11 +561,16 @@ function updateMixGains(distance = lastDirectDistance) {
     reverbLowShelf.gain.setValueAtTime(lowShelfGainDb, audioCtx.currentTime);
   }
   if (reverbPresence) {
-    const presenceGainDb = 0.8 + (resonance.vocal - 1) * 7;
+    const presenceGainDb = 0.8 + (resonance.vocal - 1) * 7 + VOCAL_CLARITY.presenceBoostDb;
     reverbPresence.gain.setValueAtTime(presenceGainDb, audioCtx.currentTime);
   }
   earlyGain.gain.setValueAtTime(
-    baseState.early.gain * depthFactor * earlyFactor * profile.early * resonance.reverb,
+    baseState.early.gain *
+      depthFactor *
+      earlyFactor *
+      profile.early *
+      resonance.reverb *
+      VOCAL_CLARITY.earlyAttenuation,
     audioCtx.currentTime
   );
   reverbGain.gain.setValueAtTime(
@@ -569,7 +578,8 @@ function updateMixGains(distance = lastDirectDistance) {
       depthFactor *
       profile.reverb *
       resonance.reverb *
-      (0.82 + toneFactor * 0.22),
+      (0.82 + toneFactor * 0.22) *
+      VOCAL_CLARITY.reverbAttenuation,
     audioCtx.currentTime
   );
 }
@@ -627,9 +637,10 @@ function getPartMotionOffset(
     return { x: 0, y: 0, z: 0 };
   }
   const speedScale = 0.74 + depthFactor * 0.95 + motionBoostXY * 0.05;
-  const ampScaleXY = spatialStrength * motionBoostXY;
+  const ampScaleXY = spatialStrength * motionBoostXY * 1.28;
   const ampScaleZ = spatialStrength * motionBoostZ;
-  const angle = time * Math.PI * 2 * cfg.speed * speedScale + cfg.phase;
+  const roleSpeedFactor = role === "vocal" ? 0.42 : 0.68;
+  const angle = time * Math.PI * 2 * cfg.speed * speedScale * roleSpeedFactor + cfg.phase;
   return {
     x: Math.sin(angle * 1.15) * cfg.x * ampScaleXY,
     y: Math.sin(angle * 0.78) * cfg.y * ampScaleXY,
@@ -639,57 +650,45 @@ function getPartMotionOffset(
 
 function updatePannerPositions(time) {
   if (!audioCtx) return;
-  const beatPulse = 0;
-  updateListenerPose(time, beatPulse);
+  updateListenerPose(time);
   const focusOffset = (Number(focus.value) / 100) * 1.2;
-  const motionIntensityFactor = getMotionIntensityFactor();
-  const motionActive =
-    motionToggle.checked && baseState.motion.type !== "none" && motionIntensityFactor > 0.01;
+  const motionScale = getMotionIntensityFactor();
+  const motionActive = motionToggle.checked && baseState.motion.type !== "none";
   const motion = baseState.motion;
   const base = baseState.direct.pos;
   const depthFactor = getDepthFactor();
-  const intensityBoost = 0.5 + motionIntensityFactor * 0.9;
-  const motionBoostBase = motionActive
-    ? intensityBoost * (1 + depthFactor * 0.33 + beatPulse * 0.34)
-    : 1;
-  const motionBoostXY = motionActive
-    ? motionBoostBase * (1.48 + motionIntensityFactor * 0.22)
-    : 1;
-  const motionBoostZ = motionActive
-    ? motionBoostBase
-    : 1;
+  const radiusScale = 0.45 + motionScale * 0.55;
   const motionSpeed = motionActive
     ? motion.speed *
-      (0.78 + depthFactor * 0.72 + beatPulse * 0.18) *
-      (0.62 + motionIntensityFactor * 0.68)
+      (0.7 + depthFactor * 0.6) *
+      (0.45 + motionScale * 0.55)
     : 0;
 
   let offset = { x: 0, y: 0, z: 0 };
   if (motionActive) {
     const angle = time * motionSpeed * Math.PI * 2;
-    const radiusXY = motion.radius * motionBoostXY;
-    const radiusZ = motion.radius * motionBoostZ;
-    const elevation = motion.elevation * (0.9 + motionBoostXY * 0.32);
+    const radius = motion.radius * radiusScale;
+    const elevation = motion.elevation * (0.75 + motionScale * 0.5);
     if (motion.type === "orbit") {
-      const wobble = Math.sin(angle * 0.5) * radiusZ * 0.42;
-      const radiusX = radiusXY * (0.95 + Math.sin(angle * 0.4) * 0.18);
-      const orbitRadiusZ = radiusZ * (1.05 + Math.cos(angle * 0.45) * 0.22);
+      const wobble = Math.sin(angle * 0.5) * radius * 0.35;
+      const radiusX = radius * (0.95 + Math.sin(angle * 0.4) * 0.18);
+      const radiusZ = radius * (1.05 + Math.cos(angle * 0.45) * 0.22);
       offset = {
         x: Math.cos(angle) * radiusX,
         y: Math.sin(angle * 0.55) * elevation,
-        z: Math.sin(angle) * orbitRadiusZ + wobble,
+        z: Math.sin(angle) * radiusZ + wobble,
       };
     } else if (motion.type === "float") {
       offset = {
-        x: Math.sin(angle) * radiusXY,
+        x: Math.sin(angle) * radius,
         y: Math.cos(angle * 0.8) * elevation,
-        z: Math.sin(angle * 0.4) * radiusZ * 0.48,
+        z: Math.sin(angle * 0.4) * radius * 0.4,
       };
     } else if (motion.type === "pulse") {
       offset = {
-        x: Math.sin(angle * 1.6) * radiusXY * 0.86,
+        x: Math.sin(angle * 1.6) * radius * 0.7,
         y: Math.cos(angle * 1.3) * elevation * 0.72,
-        z: Math.sin(angle * 0.9) * radiusZ * 0.4,
+        z: Math.sin(angle * 0.9) * radius * 0.3,
       };
     }
   }
@@ -700,47 +699,29 @@ function updatePannerPositions(time) {
   const baseZ = base.z + offset.z - focusOffset;
   const directDistance = Math.hypot(baseX, baseY, baseZ);
   updateMixGains(directDistance);
-  const separation =
-    (0.18 + depthFactor * 0.55) *
-    spatialStrength *
-    (motionActive ? 1 + motionIntensityFactor * 0.58 : 1);
+  const separation = (0.18 + depthFactor * 0.55) * spatialStrength;
   if (accompanimentLeftPanner && accompanimentRightPanner) {
-    const spread =
-      (0.95 + depthFactor * 0.35) *
-      (bypass3D ? 0.88 : 1) *
-      (motionActive ? 1 + motionIntensityFactor * 0.48 : 1);
+    const spread = (0.95 + depthFactor * 0.35) * (bypass3D ? 0.88 : 1);
     const zShift = bypass3D ? 0 : depthFactor * 0.2;
-    const sideYSway = motionActive
-      ? Math.sin(time * motionSpeed * Math.PI * 1.05) * 0.14 * motionIntensityFactor
-      : 0;
     setPannerPosition(
       accompanimentLeftPanner,
       ACCOMPANIMENT_LAYOUT.left.x * spread,
-      ACCOMPANIMENT_LAYOUT.left.y + sideYSway,
+      ACCOMPANIMENT_LAYOUT.left.y,
       ACCOMPANIMENT_LAYOUT.left.z - zShift
     );
     setPannerPosition(
       accompanimentRightPanner,
       ACCOMPANIMENT_LAYOUT.right.x * spread,
-      ACCOMPANIMENT_LAYOUT.right.y - sideYSway,
+      ACCOMPANIMENT_LAYOUT.right.y,
       ACCOMPANIMENT_LAYOUT.right.z - zShift
     );
   }
 
   directBands.forEach((band) => {
     const config = band.config;
-    const partOffset = getPartMotionOffset(
-      config.role,
-      time,
-      depthFactor,
-      motionActive,
-      spatialStrength,
-      motionBoostXY,
-      motionBoostZ
-    );
-    const laneBaseX = baseX + partOffset.x;
-    const laneBaseY = baseY + partOffset.y;
-    const laneBaseZ = baseZ + partOffset.z;
+    const laneBaseX = baseX;
+    const laneBaseY = baseY;
+    const laneBaseZ = baseZ;
     const elevation = config.elevation * (0.6 + depthFactor * 0.6) * spatialStrength;
     const depthPush = config.depth * (0.6 + depthFactor * 0.6) * spatialStrength;
     const spread = config.spread * separation;
@@ -775,9 +756,9 @@ function updatePannerPositions(time) {
       const phase = time * motionSpeed * Math.PI * 2 + i * 1.2;
       const orbitBoost = motion.type === "orbit" ? 0.35 : 0.2;
       extra = {
-        x: Math.cos(phase) * motion.radius * orbitBoost * motionBoostXY * 1.12,
-        y: Math.sin(phase * 0.8) * motion.elevation * 0.35 * motionBoostXY * 1.2,
-        z: Math.sin(phase) * motion.radius * orbitBoost * 0.6 * motionBoostZ,
+        x: Math.cos(phase) * motion.radius * orbitBoost * radiusScale,
+        y: Math.sin(phase * 0.8) * motion.elevation * 0.35 * radiusScale,
+        z: Math.sin(phase) * motion.radius * orbitBoost * 0.6 * radiusScale,
       };
     }
     setPannerPosition(

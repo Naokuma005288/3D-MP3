@@ -121,8 +121,7 @@ function startVisualizer() {
       updateBpmEstimator(nowSec, low, mid, high);
     }
     updateBpmHint(nowSec);
-    const beatRate = bpmEstimate > 0 ? bpmEstimate / 60 : 1.05;
-    const beatPulse = 0;
+    const beatRate = 1.05;
 
     const theme = getTheme();
     const hue = theme.hueBase + high * theme.hueRange;
@@ -130,9 +129,9 @@ function startVisualizer() {
       ? 0.1 + (1 - videoBlendValue) * 0.9
       : 1;
     if (app) {
-      const target = Math.min(1, energy * 1.4 + beatPulse * 0.75);
+      const target = Math.min(1, energy * 1.4);
       edgeGlow = edgeGlow * 0.85 + target * 0.15;
-      edgeSpin += 0.0028 + energy * 0.01 + beatPulse * 0.012;
+      edgeSpin += 0.0028 + energy * 0.01;
       app.style.setProperty("--edge-alpha", (0.3 + edgeGlow * 0.58).toFixed(3));
       app.style.setProperty("--edge-alpha-2", (0.2 + edgeGlow * 0.46).toFixed(3));
       app.style.setProperty(
@@ -185,7 +184,7 @@ function startVisualizer() {
       const ease = z * z;
       const y = horizon + ease * (floor - horizon);
       const w = lerp(width * 0.18, width * 1.12, ease);
-      const alpha = (1 - z) * (0.12 + low * 0.28 + beatPulse * 0.15);
+      const alpha = (1 - z) * (0.12 + low * 0.28);
       canvasCtx.strokeStyle = `hsla(${theme.gridHue}, 80%, 70%, ${alpha})`;
       canvasCtx.beginPath();
       canvasCtx.moveTo(centerX - w / 2, y);
@@ -197,7 +196,7 @@ function startVisualizer() {
     canvasCtx.globalCompositeOperation = "lighter";
     canvasCtx.lineCap = "round";
 
-    const ribbonAmp = height * 0.08 * (0.4 + mid) * (1 + beatPulse * 0.34);
+    const ribbonAmp = height * 0.08 * (0.4 + mid);
     const ribbonBase = horizon + (floor - horizon) * 0.25;
     const ribbonGap = height * 0.026;
     const drawRibbon = (y, amp, color, widthLine, glowAmt) => {
@@ -213,7 +212,7 @@ function startVisualizer() {
         const wobble =
           Math.sin(t * Math.PI * 2 + nowSec * (0.64 + beatRate * 0.55)) *
           high *
-          (10 + beatPulse * 8);
+          10;
         const yPos = y + v * amp + wobble;
         if (i === 0) {
           canvasCtx.moveTo(x, yPos);
@@ -251,7 +250,7 @@ function startVisualizer() {
     const barCount = 48;
     const barWidth = width / barCount;
     const barTop = floor - height * 0.02;
-    const barMax = height * 0.18 * (0.7 + low * 0.8 + beatPulse * 0.24);
+    const barMax = height * 0.18 * (0.7 + low * 0.8);
     for (let i = 0; i < barCount; i += 1) {
       const value = vizData[i * 2] / 255;
       const h = value * barMax;
@@ -266,7 +265,7 @@ function startVisualizer() {
       canvasCtx.stroke();
     }
 
-    const coreRadius = Math.min(width, height) * (0.08 + low * 0.12 + beatPulse * 0.035);
+    const coreRadius = Math.min(width, height) * (0.08 + low * 0.12);
     const core = canvasCtx.createRadialGradient(
       centerX,
       horizon,
@@ -320,7 +319,7 @@ function buildPresetButtons() {
     btn.className = "preset-btn";
     btn.type = "button";
     btn.dataset.preset = preset.id;
-    btn.innerHTML = `<strong>${preset.name}</strong><span>${preset.desc}</span>`;
+    btn.innerHTML = `<strong>${getPresetName(preset)}</strong><span>${getPresetDescription(preset)}</span>`;
     btn.addEventListener("click", () => {
       if (!audioCtx) ensureAudio();
       applyPreset(preset);
@@ -343,7 +342,7 @@ async function handlePlay() {
     try {
       await audio.play();
     } catch {
-      setTrackHint("再生を開始できませんでした", true);
+      setTrackHint(t("hint.playFailed", {}, "再生を開始できませんでした"), true);
     }
   } else {
     audio.pause();
@@ -353,8 +352,11 @@ async function handlePlay() {
 
 function updatePlayState() {
   const isPlaying = !audio.paused;
-  playIcon.textContent = isPlaying ? "一時停止" : "再生";
-  if (hudPlay) hudPlay.textContent = isPlaying ? "一時停止" : "再生";
+  const label = isPlaying
+    ? t("buttons.pause", {}, "一時停止")
+    : t("buttons.play", {}, "再生");
+  playIcon.textContent = label;
+  if (hudPlay) hudPlay.textContent = label;
 }
 
 function handleStop() {
@@ -372,12 +374,13 @@ function isPlayableFile(file) {
 function loadFile(file) {
   if (!file) return;
   if (!isPlayableFile(file)) {
-    setTrackHint("未対応の形式です。MP3/M4A/WEBM/MP4等を選択してください", true);
+    setTrackHint(t("hint.unsupported", {}, "未対応の形式です。MP3/M4A/WEBM/MP4等を選択してください"), true);
     return;
   }
   if (objectUrl) URL.revokeObjectURL(objectUrl);
   objectUrl = URL.createObjectURL(file);
   audio.src = objectUrl;
+  hasLoadedTrack = true;
   const name = file.name.toLowerCase();
   const isVideo = file.type.startsWith("video/") || /\.(mp4|webm)$/i.test(name);
   hasVideo = isVideo;
@@ -418,12 +421,16 @@ function syncFullscreenState() {
   if (!vizCard || !fullBtn) return;
   const isFs = document.fullscreenElement === vizCard;
   vizCard.classList.toggle("is-fullscreen", isFs);
-  fullBtn.textContent = isFs ? "閉じる" : "全画面";
+  fullBtn.textContent = isFs
+    ? t("buttons.fullscreenClose", {}, "閉じる")
+    : t("buttons.fullscreen", {}, "全画面");
 }
 
 function updateBypassButton() {
   if (!abToggle) return;
-  abToggle.textContent = bypass3D ? "A/B: 3D OFF" : "A/B: 3D ON";
+  abToggle.textContent = bypass3D
+    ? t("ab.off", {}, "A/B: 3D OFF")
+    : t("ab.on", {}, "A/B: 3D ON");
   abToggle.classList.toggle("active", bypass3D);
 }
 
@@ -459,8 +466,16 @@ function isEditableTarget(target) {
 }
 
 function handleGlobalKeydown(event) {
+  if (event.code === "Escape" && settingsPanel && !settingsPanel.hidden) {
+    event.preventDefault();
+    closeSettingsPanel();
+    return;
+  }
   if (event.altKey || event.ctrlKey || event.metaKey) return;
   if (isEditableTarget(event.target)) return;
+  if (settingsPanel && !settingsPanel.hidden && event.target instanceof HTMLElement) {
+    if (event.target.closest("#settings-panel")) return;
+  }
 
   switch (event.code) {
     case "Space":
@@ -561,6 +576,27 @@ function updateVolume() {
   masterGain.gain.setValueAtTime(Number(volume.value), audioCtx.currentTime);
 }
 
+function openSettingsPanel() {
+  if (!settingsPanel || !settingsBtn) return;
+  settingsPanel.hidden = false;
+  settingsBtn.setAttribute("aria-expanded", "true");
+}
+
+function closeSettingsPanel() {
+  if (!settingsPanel || !settingsBtn) return;
+  settingsPanel.hidden = true;
+  settingsBtn.setAttribute("aria-expanded", "false");
+}
+
+function toggleSettingsPanel() {
+  if (!settingsPanel) return;
+  if (settingsPanel.hidden) {
+    openSettingsPanel();
+  } else {
+    closeSettingsPanel();
+  }
+}
+
 loadBtn.addEventListener("click", () => fileInput.click());
 if (resetBtn) resetBtn.addEventListener("click", resetSettings);
 fileInput.addEventListener("change", handleFile);
@@ -579,7 +615,7 @@ audio.addEventListener("loadedmetadata", () => {
 });
 audio.addEventListener("error", () => {
   resetBpmEstimator();
-  setTrackHint("このファイルは再生できませんでした", true);
+  setTrackHint(t("hint.fileError", {}, "このファイルは再生できませんでした"), true);
 });
 volume.addEventListener("input", () => {
   updateVolume();
@@ -661,7 +697,36 @@ if (vizTheme) {
     btn.addEventListener("click", () => setTheme(btn.dataset.theme));
   });
 }
+if (settingsBtn) {
+  settingsBtn.addEventListener("click", (event) => {
+    event.stopPropagation();
+    toggleSettingsPanel();
+  });
+}
+if (settingsClose) {
+  settingsClose.addEventListener("click", closeSettingsPanel);
+}
+if (langSegment) {
+  langSegment.querySelectorAll("button[data-lang]").forEach((button) => {
+    button.addEventListener("click", () => {
+      setLanguage(button.dataset.lang);
+    });
+  });
+}
+if (layoutSegment) {
+  layoutSegment.querySelectorAll("button[data-layout]").forEach((button) => {
+    button.addEventListener("click", () => {
+      setLayout(button.dataset.layout);
+    });
+  });
+}
 document.addEventListener("keydown", handleGlobalKeydown);
+document.addEventListener("click", (event) => {
+  if (!settingsPanel || settingsPanel.hidden) return;
+  if (settingsPanel.contains(event.target)) return;
+  if (settingsBtn && settingsBtn.contains(event.target)) return;
+  closeSettingsPanel();
+});
 document.addEventListener("dragover", (event) => {
   if (isFileDrag(event)) event.preventDefault();
 });
@@ -678,7 +743,8 @@ if (app) {
 if (versionBadge) versionBadge.textContent = APP_VERSION;
 void initWasmMath();
 restoreSettings();
-buildPresetButtons();
+setLayout(currentLayout, false);
+setLanguage(currentLanguage, false);
 updatePlayState();
 syncFullscreenState();
 updateThemeButtons();
