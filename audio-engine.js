@@ -1,4 +1,10 @@
 // Audio graph and spatial motion engine.
+const POSITION_SMOOTH_TIME = 0.035;
+const LISTENER_SMOOTH_TIME = 0.05;
+const PRESET_TRANSITION_MS = 320;
+
+let presetTransitionFrame = null;
+let analysisData;
 
 function ensureAudio() {
   if (audioCtx) return;
@@ -11,6 +17,7 @@ function ensureAudio() {
   analyser.smoothingTimeConstant = 0.85;
   vizData = new Uint8Array(analyser.frequencyBinCount);
   vizWave = new Uint8Array(analyser.fftSize);
+  analysisData = new Uint8Array(analyser.frequencyBinCount);
   eqLowShelf = audioCtx.createBiquadFilter();
   eqLowShelf.type = "lowshelf";
   eqLowShelf.frequency.value = 120;
@@ -23,6 +30,22 @@ function ensureAudio() {
   eqHighShelf.type = "highshelf";
   eqHighShelf.frequency.value = 6200;
   eqHighShelf.Q.value = 0.7;
+  outputMakeupGain = audioCtx.createGain();
+  outputCompressor = audioCtx.createDynamicsCompressor();
+  outputLimiter = audioCtx.createDynamicsCompressor();
+
+  outputCompressor.threshold.value = OUTPUT_STAGE_PROFILE.compressor.threshold;
+  outputCompressor.knee.value = OUTPUT_STAGE_PROFILE.compressor.knee;
+  outputCompressor.ratio.value = OUTPUT_STAGE_PROFILE.compressor.ratio;
+  outputCompressor.attack.value = OUTPUT_STAGE_PROFILE.compressor.attack;
+  outputCompressor.release.value = OUTPUT_STAGE_PROFILE.compressor.release;
+
+  outputLimiter.threshold.value = OUTPUT_STAGE_PROFILE.limiter.threshold;
+  outputLimiter.knee.value = OUTPUT_STAGE_PROFILE.limiter.knee;
+  outputLimiter.ratio.value = OUTPUT_STAGE_PROFILE.limiter.ratio;
+  outputLimiter.attack.value = OUTPUT_STAGE_PROFILE.limiter.attack;
+  outputLimiter.release.value = OUTPUT_STAGE_PROFILE.limiter.release;
+  outputMakeupGain.gain.value = OUTPUT_STAGE_PROFILE.makeupGain;
 
   directGain = audioCtx.createGain();
 
@@ -248,13 +271,16 @@ function ensureAudio() {
   masterGain.connect(eqLowShelf);
   eqLowShelf.connect(eqMidPeaking);
   eqMidPeaking.connect(eqHighShelf);
-  eqHighShelf.connect(analyser);
+  eqHighShelf.connect(outputMakeupGain);
+  outputMakeupGain.connect(outputCompressor);
+  outputCompressor.connect(outputLimiter);
+  outputLimiter.connect(analyser);
   analyser.connect(audioCtx.destination);
 
   masterGain.gain.value = Number(volume.value);
   updateEqSettings();
   const initialPreset = presets.find((preset) => preset.id === pendingPresetId) || presets[0];
-  applyPreset(initialPreset);
+  applyPreset(initialPreset, { instant: true });
   updateLoopState();
 }
 
@@ -288,11 +314,29 @@ function updateEqSettings() {
   eqHighShelf.gain.setValueAtTime(trebleDb, audioCtx.currentTime);
 }
 
+function updateOutputStageGain(distanceNorm, vocalPresence, depthFactor) {
+  if (!audioCtx || !outputMakeupGain) return;
+  if (bypass3D) {
+    outputMakeupGain.gain.setTargetAtTime(OUTPUT_STAGE_PROFILE.makeupGain, audioCtx.currentTime, 0.06);
+    return;
+  }
+  const distanceComp = 1 + distanceNorm * 0.085;
+  const vocalComp = 1 - vocalPresence * 0.04;
+  const depthComp = 1 + depthFactor * 0.03;
+  const target = clamp(
+    OUTPUT_STAGE_PROFILE.makeupGain * distanceComp * vocalComp * depthComp,
+    0.98,
+    1.22,
+    OUTPUT_STAGE_PROFILE.makeupGain
+  );
+  outputMakeupGain.gain.setTargetAtTime(target, audioCtx.currentTime, 0.05);
+}
+
 function setPannerPosition(panner, x, y, z) {
   if (panner.positionX) {
-    panner.positionX.setValueAtTime(x, audioCtx.currentTime);
-    panner.positionY.setValueAtTime(y, audioCtx.currentTime);
-    panner.positionZ.setValueAtTime(z, audioCtx.currentTime);
+    panner.positionX.setTargetAtTime(x, audioCtx.currentTime, POSITION_SMOOTH_TIME);
+    panner.positionY.setTargetAtTime(y, audioCtx.currentTime, POSITION_SMOOTH_TIME);
+    panner.positionZ.setTargetAtTime(z, audioCtx.currentTime, POSITION_SMOOTH_TIME);
   } else if (panner.setPosition) {
     panner.setPosition(x, y, z);
   }
@@ -302,9 +346,9 @@ function setListenerPosition(x, y, z) {
   if (!audioCtx) return;
   const listener = audioCtx.listener;
   if (listener.positionX) {
-    listener.positionX.setValueAtTime(x, audioCtx.currentTime);
-    listener.positionY.setValueAtTime(y, audioCtx.currentTime);
-    listener.positionZ.setValueAtTime(z, audioCtx.currentTime);
+    listener.positionX.setTargetAtTime(x, audioCtx.currentTime, LISTENER_SMOOTH_TIME);
+    listener.positionY.setTargetAtTime(y, audioCtx.currentTime, LISTENER_SMOOTH_TIME);
+    listener.positionZ.setTargetAtTime(z, audioCtx.currentTime, LISTENER_SMOOTH_TIME);
   } else if (listener.setPosition) {
     listener.setPosition(x, y, z);
   }
@@ -314,12 +358,12 @@ function setListenerOrientation(forward, up) {
   if (!audioCtx) return;
   const listener = audioCtx.listener;
   if (listener.forwardX) {
-    listener.forwardX.setValueAtTime(forward.x, audioCtx.currentTime);
-    listener.forwardY.setValueAtTime(forward.y, audioCtx.currentTime);
-    listener.forwardZ.setValueAtTime(forward.z, audioCtx.currentTime);
-    listener.upX.setValueAtTime(up.x, audioCtx.currentTime);
-    listener.upY.setValueAtTime(up.y, audioCtx.currentTime);
-    listener.upZ.setValueAtTime(up.z, audioCtx.currentTime);
+    listener.forwardX.setTargetAtTime(forward.x, audioCtx.currentTime, LISTENER_SMOOTH_TIME);
+    listener.forwardY.setTargetAtTime(forward.y, audioCtx.currentTime, LISTENER_SMOOTH_TIME);
+    listener.forwardZ.setTargetAtTime(forward.z, audioCtx.currentTime, LISTENER_SMOOTH_TIME);
+    listener.upX.setTargetAtTime(up.x, audioCtx.currentTime, LISTENER_SMOOTH_TIME);
+    listener.upY.setTargetAtTime(up.y, audioCtx.currentTime, LISTENER_SMOOTH_TIME);
+    listener.upZ.setTargetAtTime(up.z, audioCtx.currentTime, LISTENER_SMOOTH_TIME);
   } else if (listener.setOrientation) {
     listener.setOrientation(
       forward.x,
@@ -373,23 +417,167 @@ function buildEarlyPositions(config) {
   }
 }
 
-function applyPreset(preset) {
-  currentPreset = preset;
-  pendingPresetId = preset.id;
-  baseState.direct = JSON.parse(JSON.stringify(preset.direct));
-  baseState.early.gain = preset.early.gain;
-  baseState.early.config = { ...preset.early.config };
-  baseState.reverb = { ...preset.reverb };
-  baseState.motion = { ...preset.motion };
+function copyStateSnapshot(state) {
+  return {
+    direct: { gain: state.direct.gain, pos: { ...state.direct.pos } },
+    early: { gain: state.early.gain, config: { ...state.early.config } },
+    reverb: { ...state.reverb },
+    motion: { ...state.motion },
+  };
+}
 
-  buildEarlyPositions(preset.early.config);
+function snapshotFromPreset(preset) {
+  return {
+    direct: { gain: preset.direct.gain, pos: { ...preset.direct.pos } },
+    early: { gain: preset.early.gain, config: { ...preset.early.config } },
+    reverb: { ...preset.reverb },
+    motion: { ...preset.motion },
+  };
+}
+
+function assignBaseState(snapshot) {
+  baseState.direct.gain = snapshot.direct.gain;
+  baseState.direct.pos = { ...snapshot.direct.pos };
+  baseState.early.gain = snapshot.early.gain;
+  baseState.early.config = { ...snapshot.early.config };
+  baseState.reverb = { ...snapshot.reverb };
+  baseState.motion = { ...snapshot.motion };
+  buildEarlyPositions(baseState.early.config);
+}
+
+function lerpNumber(a, b, t) {
+  return a + (b - a) * t;
+}
+
+function lerpStateSnapshot(from, to, t) {
+  return {
+    direct: {
+      gain: lerpNumber(from.direct.gain, to.direct.gain, t),
+      pos: {
+        x: lerpNumber(from.direct.pos.x, to.direct.pos.x, t),
+        y: lerpNumber(from.direct.pos.y, to.direct.pos.y, t),
+        z: lerpNumber(from.direct.pos.z, to.direct.pos.z, t),
+      },
+    },
+    early: {
+      gain: lerpNumber(from.early.gain, to.early.gain, t),
+      config: {
+        radius: lerpNumber(from.early.config.radius, to.early.config.radius, t),
+        depth: lerpNumber(from.early.config.depth, to.early.config.depth, t),
+        elevation: lerpNumber(from.early.config.elevation, to.early.config.elevation, t),
+        delayBase: lerpNumber(from.early.config.delayBase, to.early.config.delayBase, t),
+        delaySpread: lerpNumber(from.early.config.delaySpread, to.early.config.delaySpread, t),
+        damp: lerpNumber(from.early.config.damp, to.early.config.damp, t),
+      },
+    },
+    reverb: {
+      gain: lerpNumber(from.reverb.gain, to.reverb.gain, t),
+      duration: lerpNumber(from.reverb.duration, to.reverb.duration, t),
+      decay: lerpNumber(from.reverb.decay, to.reverb.decay, t),
+    },
+    motion: {
+      type: t < 0.5 ? from.motion.type : to.motion.type,
+      speed: lerpNumber(from.motion.speed, to.motion.speed, t),
+      radius: lerpNumber(from.motion.radius, to.motion.radius, t),
+      elevation: lerpNumber(from.motion.elevation, to.motion.elevation, t),
+    },
+  };
+}
+
+function stopPresetTransition() {
+  if (!presetTransitionFrame) return;
+  cancelAnimationFrame(presetTransitionFrame);
+  presetTransitionFrame = null;
+}
+
+function commitPresetState(snapshot, timeSec = 0) {
+  assignBaseState(snapshot);
   applyEarlySettings();
   updateMixGains();
   updateReverbSettings();
-  updatePannerPositions(0);
+  updatePannerPositions(timeSec);
+}
+
+function applyPreset(preset, options = {}) {
+  currentPreset = preset;
+  pendingPresetId = preset.id;
   updatePresetButtons();
   updateLoopState();
-  saveSettings();
+
+  const transitionMs = clamp(
+    Number(options.durationMs ?? PRESET_TRANSITION_MS),
+    0,
+    1400,
+    PRESET_TRANSITION_MS
+  );
+  const nowSec = performance.now() / 1000;
+  if (options.instant || transitionMs <= 0) {
+    stopPresetTransition();
+    commitPresetState(snapshotFromPreset(preset), nowSec);
+    saveSettings();
+    return;
+  }
+
+  const fromState = copyStateSnapshot(baseState);
+  const toState = snapshotFromPreset(preset);
+  stopPresetTransition();
+  const startedAt = performance.now();
+  const step = () => {
+    const elapsed = performance.now() - startedAt;
+    const t = clamp(elapsed / transitionMs, 0, 1, 1);
+    const eased = t * t * (3 - 2 * t);
+    commitPresetState(lerpStateSnapshot(fromState, toState, eased), performance.now() / 1000);
+    if (t >= 1) {
+      presetTransitionFrame = null;
+      commitPresetState(toState, performance.now() / 1000);
+      saveSettings();
+      return;
+    }
+    presetTransitionFrame = requestAnimationFrame(step);
+  };
+  presetTransitionFrame = requestAnimationFrame(step);
+}
+
+function sampleBandLevel(data, from, to) {
+  const start = clamp(Math.floor(from), 0, data.length - 1, 0);
+  const end = clamp(Math.floor(to), start + 1, data.length, start + 1);
+  let sum = 0;
+  for (let i = start; i < end; i += 1) {
+    sum += data[i];
+  }
+  return (sum / (end - start)) / 255;
+}
+
+function updateAdaptiveMixProfile(timeSec) {
+  if (!AUTO_MIX_PROFILE.enabled || !analyser || !analysisData || !audioCtx) return;
+  if (audio.paused) return;
+  if (timeSec - adaptiveMixState.lastUpdateTime < AUTO_MIX_PROFILE.updateInterval) return;
+  adaptiveMixState.lastUpdateTime = timeSec;
+  analyser.getByteFrequencyData(analysisData);
+
+  const low = sampleBandLevel(analysisData, 2, 24);
+  const mid = sampleBandLevel(analysisData, 24, 120);
+  const high = sampleBandLevel(analysisData, 120, 260);
+  const vocalBand = sampleBandLevel(analysisData, 28, 156);
+
+  const bassLead = clamp((low - mid) * 1.25, 0, 1, 0);
+  const vocalLead = clamp((mid - low * 0.85) * 1.15, 0, 1, 0);
+  const trebleLead = clamp((high - mid * 0.9) * 1.25, 0, 1, 0);
+  const vocalPresence = clamp((vocalBand - (low + high) * 0.45) * 1.8, 0, 1, 0);
+
+  const targetBass = 1 + bassLead * AUTO_MIX_PROFILE.bassBoostMax;
+  const targetVocal = 1 + vocalLead * AUTO_MIX_PROFILE.vocalBoostMax;
+  const targetTreble = 1 + trebleLead * AUTO_MIX_PROFILE.trebleBoostMax;
+  const smoothing = 0.22;
+
+  adaptiveMixState.bass = lerpNumber(adaptiveMixState.bass, targetBass, smoothing);
+  adaptiveMixState.vocal = lerpNumber(adaptiveMixState.vocal, targetVocal, smoothing);
+  adaptiveMixState.treble = lerpNumber(adaptiveMixState.treble, targetTreble, smoothing);
+  adaptiveMixState.vocalPresence = lerpNumber(
+    adaptiveMixState.vocalPresence,
+    vocalPresence,
+    smoothing
+  );
 }
 
 function getDepthFactor() {
@@ -507,16 +695,23 @@ function updateMixGains(distance = lastDirectDistance) {
   const toneFactor = Number(reverbTone?.value ?? 50) / 100;
   const profile = getDistanceMixProfile(safeDistance, depthFactor);
   const resonance = getResonanceComp(profile.distanceNorm, depthFactor);
+  const autoBass = adaptiveMixState?.bass ?? 1;
+  const autoVocal = adaptiveMixState?.vocal ?? 1;
+  const autoTreble = adaptiveMixState?.treble ?? 1;
+  const vocalPresence = adaptiveMixState?.vocalPresence ?? 0;
   const directGainValue = bypass3D
     ? baseState.direct.gain
     : baseState.direct.gain * profile.direct;
+  updateOutputStageGain(profile.distanceNorm, vocalPresence, depthFactor);
   directGain.gain.setValueAtTime(directGainValue, audioCtx.currentTime);
   if (accompanimentLeftGain && accompanimentRightGain) {
     const sideBase = bypass3D ? 0.62 : 0.48 + (1 - depthFactor) * 0.24;
     const sideDistanceTilt = bypass3D ? 1 : 1 - profile.distanceNorm * 0.08;
+    const vocalFocusTilt = bypass3D ? 1 : 1 - vocalPresence * 0.22;
     const sideGain =
       sideBase *
       sideDistanceTilt *
+      vocalFocusTilt *
       STEREO_TUNE.sideGainBoost *
       (bypass3D ? 1 : VOCAL_CLARITY.sideAttenuation);
     accompanimentLeftGain.gain.setValueAtTime(
@@ -531,12 +726,13 @@ function updateMixGains(distance = lastDirectDistance) {
   directBands.forEach((band) => {
     let gainValue = band.config.gain;
     if (band.config.id === "low") {
-      gainValue *= bypass3D ? 1 : resonance.low;
+      gainValue *= bypass3D ? 1 : resonance.low * autoBass;
     } else if (band.config.id === "mid") {
-      gainValue *= bypass3D ? 1 : resonance.vocal * VOCAL_CLARITY.midBoost;
+      gainValue *= bypass3D ? 1 : resonance.vocal * VOCAL_CLARITY.midBoost * autoVocal;
     }
     if (band.config.id === "high") {
       gainValue *= 0.92 + depthFactor * 0.42;
+      gainValue *= autoTreble;
       if (!bypass3D) {
         gainValue *= 1 - profile.distanceNorm * 0.02;
       }
@@ -570,6 +766,7 @@ function updateMixGains(distance = lastDirectDistance) {
       earlyFactor *
       profile.early *
       resonance.reverb *
+      (1 - vocalPresence * 0.08) *
       VOCAL_CLARITY.earlyAttenuation,
     audioCtx.currentTime
   );
@@ -579,6 +776,7 @@ function updateMixGains(distance = lastDirectDistance) {
       profile.reverb *
       resonance.reverb *
       (0.82 + toneFactor * 0.22) *
+      (1 - vocalPresence * 0.16) *
       VOCAL_CLARITY.reverbAttenuation,
     audioCtx.currentTime
   );
@@ -650,6 +848,7 @@ function getPartMotionOffset(
 
 function updatePannerPositions(time) {
   if (!audioCtx) return;
+  updateAdaptiveMixProfile(time);
   updateListenerPose(time);
   const focusOffset = (Number(focus.value) / 100) * 1.2;
   const motionScale = getMotionIntensityFactor();

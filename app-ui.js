@@ -73,6 +73,89 @@ function updateVideoBlend() {
   saveSettings();
 }
 
+const VIZ_PRESET_PROFILES = {
+  studio: { hueShift: -8, motionRate: 0.9, ribbonBoost: 0.85, barBoost: 1.08, wingBoost: 0.8, glowBoost: 0.82 },
+  hall: { hueShift: 10, motionRate: 1.02, ribbonBoost: 1.08, barBoost: 0.98, wingBoost: 1.15, glowBoost: 1.08 },
+  club: { hueShift: 28, motionRate: 1.2, ribbonBoost: 0.95, barBoost: 1.24, wingBoost: 0.88, glowBoost: 1.2 },
+  orbit: { hueShift: 20, motionRate: 1.28, ribbonBoost: 1.12, barBoost: 1.04, wingBoost: 1.22, glowBoost: 1.18 },
+  cathedral: { hueShift: -16, motionRate: 0.82, ribbonBoost: 1.2, barBoost: 0.82, wingBoost: 1.24, glowBoost: 1.14 },
+  cinema: { hueShift: 14, motionRate: 1.0, ribbonBoost: 1.05, barBoost: 1.02, wingBoost: 1.1, glowBoost: 1.1 },
+  hyper: { hueShift: 34, motionRate: 1.34, ribbonBoost: 1.16, barBoost: 1.12, wingBoost: 1.28, glowBoost: 1.26 },
+  arena: { hueShift: 24, motionRate: 1.18, ribbonBoost: 0.98, barBoost: 1.28, wingBoost: 0.9, glowBoost: 1.16 },
+  void: { hueShift: -26, motionRate: 0.74, ribbonBoost: 1.22, barBoost: 0.76, wingBoost: 1.3, glowBoost: 1.04 },
+  default: { hueShift: 0, motionRate: 1, ribbonBoost: 1, barBoost: 1, wingBoost: 1, glowBoost: 1 },
+};
+
+function getVizPresetProfile() {
+  const id = currentPreset?.id ?? pendingPresetId ?? "default";
+  return VIZ_PRESET_PROFILES[id] || VIZ_PRESET_PROFILES.default;
+}
+
+function getVizQualityProfile(width, height) {
+  const area = width * height;
+  if (frameAvg > 24 || renderScale <= 0.7 || area > 2200000) {
+    return {
+      name: "low",
+      barCount: 24,
+      waveStep: 8,
+      wingCount: 14,
+      drawSecondaryRibbon: false,
+      drawSecondaryWing: false,
+    };
+  }
+  if (frameAvg > 18 || renderScale <= 0.85 || area > 1600000) {
+    return {
+      name: "mid",
+      barCount: 36,
+      waveStep: 6,
+      wingCount: 24,
+      drawSecondaryRibbon: true,
+      drawSecondaryWing: false,
+    };
+  }
+  return {
+    name: "high",
+    barCount: 48,
+    waveStep: 4,
+    wingCount: 34,
+    drawSecondaryRibbon: true,
+    drawSecondaryWing: true,
+  };
+}
+
+function getBandAverage(data, from, to) {
+  const end = Math.min(data.length, to);
+  let sum = 0;
+  for (let i = from; i < end; i += 1) sum += data[i];
+  return end > from ? sum / (end - from) / 255 : 0;
+}
+
+function drawWaveRibbon(ctx, wave, width, nowSec, params) {
+  const { y, amp, color, widthLine, glowAmt, high, beatRate, step } = params;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = widthLine;
+  ctx.shadowColor = color;
+  ctx.shadowBlur = glowAmt;
+  ctx.beginPath();
+  for (let i = 0; i < wave.length; i += step) {
+    const t = i / (wave.length - 1);
+    const x = t * width;
+    const v = (wave[i] - 128) / 128;
+    const wobble =
+      Math.sin(t * Math.PI * 2 + nowSec * (0.64 + beatRate * 0.55)) *
+      high *
+      10;
+    const yPos = y + v * amp + wobble;
+    if (i === 0) {
+      ctx.moveTo(x, yPos);
+    } else {
+      ctx.lineTo(x, yPos);
+    }
+  }
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+}
+
 function startVisualizer() {
   if (vizLoopId) return;
   if (!resizeHandlerAttached) {
@@ -83,8 +166,7 @@ function startVisualizer() {
 
   let edgeGlow = 0;
   let edgeSpin = 0;
-  const barCount = 48;
-  const barPeaks = new Float32Array(barCount);
+  const barPeaks = new Float32Array(64);
 
   const draw = (now) => {
     if (!shouldRunLoop()) {
@@ -108,25 +190,20 @@ function startVisualizer() {
     const horizon = height * 0.4;
     const floor = height * 0.94;
 
-    const band = (from, to) => {
-      const end = Math.min(vizData.length, to);
-      let sum = 0;
-      for (let i = from; i < end; i += 1) sum += vizData[i];
-      return end > from ? sum / (end - from) / 255 : 0;
-    };
-
-    const low = band(0, 12);
-    const mid = band(12, 64);
-    const high = band(64, 180);
+    const quality = getVizQualityProfile(width, height);
+    const profile = getVizPresetProfile();
+    const low = getBandAverage(vizData, 0, 12);
+    const mid = getBandAverage(vizData, 12, 64);
+    const high = getBandAverage(vizData, 64, 180);
     const energy = (low * 1.2 + mid + high * 0.8) / 3;
     if (!audio.paused) {
       updateBpmEstimator(nowSec, low, mid, high);
     }
     updateBpmHint(nowSec);
-    const beatRate = 1.05;
+    const beatRate = 1.05 * profile.motionRate;
 
     const theme = getTheme();
-    const hue = theme.hueBase + high * theme.hueRange;
+    const hue = theme.hueBase + high * theme.hueRange + profile.hueShift;
     const overlayAlpha = hasVideo
       ? 0.1 + (1 - videoBlendValue) * 0.9
       : 1;
@@ -168,10 +245,13 @@ function startVisualizer() {
       horizon,
       width * 0.7
     );
-    glow.addColorStop(0, `hsla(${theme.glowHue}, 90%, 65%, ${0.15 + high * 0.3})`);
+    glow.addColorStop(
+      0,
+      `hsla(${theme.glowHue}, 90%, 65%, ${(0.15 + high * 0.3) * profile.glowBoost})`
+    );
     glow.addColorStop(
       0.4,
-      `hsla(${theme.glowHue + 40}, 85%, 62%, ${0.08 + mid * 0.2})`
+      `hsla(${theme.glowHue + 40}, 85%, 62%, ${(0.08 + mid * 0.2) * profile.glowBoost})`
     );
     glow.addColorStop(1, "rgba(8, 10, 18, 0)");
     canvasCtx.fillStyle = glow;
@@ -181,62 +261,52 @@ function startVisualizer() {
     canvasCtx.globalCompositeOperation = "lighter";
     canvasCtx.lineCap = "round";
 
-    const ribbonAmp = height * 0.08 * (0.4 + mid);
+    const ribbonAmp = height * 0.08 * (0.4 + mid) * profile.ribbonBoost;
     const ribbonBase = horizon + (floor - horizon) * 0.25;
     const ribbonGap = height * 0.026;
-    const drawRibbon = (y, amp, color, widthLine, glowAmt) => {
-      canvasCtx.strokeStyle = color;
-      canvasCtx.lineWidth = widthLine;
-      canvasCtx.shadowColor = color;
-      canvasCtx.shadowBlur = glowAmt;
-      canvasCtx.beginPath();
-      for (let i = 0; i < vizWave.length; i += 4) {
-        const t = i / (vizWave.length - 1);
-        const x = t * width;
-        const v = (vizWave[i] - 128) / 128;
-        const wobble =
-          Math.sin(t * Math.PI * 2 + nowSec * (0.64 + beatRate * 0.55)) *
-          high *
-          10;
-        const yPos = y + v * amp + wobble;
-        if (i === 0) {
-          canvasCtx.moveTo(x, yPos);
-        } else {
-          canvasCtx.lineTo(x, yPos);
-        }
+    drawWaveRibbon(canvasCtx, vizWave, width, nowSec, {
+      y: ribbonBase,
+      amp: ribbonAmp,
+      color: `hsla(${hue}, 92%, 70%, 0.7)`,
+      widthLine: quality.name === "low" ? 2.6 : 3.2,
+      glowAmt: quality.name === "low" ? 10 : 14,
+      high,
+      beatRate,
+      step: quality.waveStep,
+    });
+    if (quality.drawSecondaryRibbon) {
+      drawWaveRibbon(canvasCtx, vizWave, width, nowSec, {
+        y: ribbonBase + ribbonGap,
+        amp: ribbonAmp * 0.7,
+        color: `hsla(${hue - 24}, 90%, 65%, 0.55)`,
+        widthLine: quality.name === "high" ? 2.6 : 2.3,
+        glowAmt: quality.name === "high" ? 10 : 8,
+        high,
+        beatRate,
+        step: quality.waveStep + 1,
+      });
+      if (quality.name === "high") {
+        drawWaveRibbon(canvasCtx, vizWave, width, nowSec, {
+          y: ribbonBase + ribbonGap * 2,
+          amp: ribbonAmp * 0.5,
+          color: `hsla(${hue + 34}, 90%, 72%, 0.45)`,
+          widthLine: 2.2,
+          glowAmt: 8,
+          high,
+          beatRate,
+          step: quality.waveStep + 1,
+        });
       }
-      canvasCtx.stroke();
-      canvasCtx.shadowBlur = 0;
-    };
-
-    drawRibbon(
-      ribbonBase,
-      ribbonAmp,
-      `hsla(${hue}, 92%, 70%, 0.7)`,
-      3.2,
-      14
-    );
-    drawRibbon(
-      ribbonBase + ribbonGap,
-      ribbonAmp * 0.7,
-      `hsla(${hue - 24}, 90%, 65%, 0.55)`,
-      2.6,
-      10
-    );
-    drawRibbon(
-      ribbonBase + ribbonGap * 2,
-      ribbonAmp * 0.5,
-      `hsla(${hue + 34}, 90%, 72%, 0.45)`,
-      2.2,
-      8
-    );
+    }
     canvasCtx.restore();
 
+    const barCount = quality.barCount;
     const barWidth = width / barCount;
     const barTop = floor - height * 0.02;
-    const barMax = height * 0.18 * (0.7 + low * 0.8);
+    const barMax = height * 0.18 * (0.7 + low * 0.8) * profile.barBoost;
     for (let i = 0; i < barCount; i += 1) {
-      const value = vizData[i * 2] / 255;
+      const idx = Math.min(vizData.length - 1, Math.floor((i / Math.max(1, barCount - 1)) * 220));
+      const value = vizData[idx] / 255;
       const h = value * barMax;
       const x = i * barWidth + barWidth * 0.5;
       canvasCtx.strokeStyle = `hsla(${hue + value * 120}, 85%, 65%, ${
@@ -248,9 +318,10 @@ function startVisualizer() {
       canvasCtx.lineTo(x, barTop - h);
       canvasCtx.stroke();
 
-      const peakDecay = 0.012 + (1 - low) * 0.01;
-      barPeaks[i] = Math.max(value, barPeaks[i] - peakDecay);
-      const peakY = barTop - barPeaks[i] * barMax;
+      const peakSlot = Math.floor((i / Math.max(1, barCount - 1)) * (barPeaks.length - 1));
+      const peakDecay = 0.012 + (1 - low) * 0.01 + (quality.name === "low" ? 0.008 : 0);
+      barPeaks[peakSlot] = Math.max(value, barPeaks[peakSlot] - peakDecay);
+      const peakY = barTop - barPeaks[peakSlot] * barMax;
       canvasCtx.strokeStyle = `hsla(${hue + value * 100}, 90%, 76%, ${0.2 + value * 0.62})`;
       canvasCtx.lineWidth = Math.max(1, barWidth * 0.34);
       canvasCtx.beginPath();
@@ -261,8 +332,8 @@ function startVisualizer() {
 
     canvasCtx.save();
     canvasCtx.globalCompositeOperation = "lighter";
-    const wingCount = 34;
-    const wingAmp = height * (0.09 + mid * 0.13);
+    const wingCount = quality.wingCount;
+    const wingAmp = height * (0.09 + mid * 0.13) * profile.wingBoost;
     canvasCtx.lineWidth = 1.5;
     canvasCtx.strokeStyle = `hsla(${hue + 22}, 88%, 72%, ${0.16 + high * 0.35})`;
     canvasCtx.beginPath();
@@ -279,21 +350,23 @@ function startVisualizer() {
       else canvasCtx.lineTo(x, y);
     }
     canvasCtx.stroke();
-    canvasCtx.strokeStyle = `hsla(${hue - 18}, 86%, 70%, ${0.12 + mid * 0.24})`;
-    canvasCtx.beginPath();
-    for (let i = 0; i < wingCount; i += 1) {
-      const t = i / (wingCount - 1);
-      const idx = Math.min(vizData.length - 1, Math.floor(t * 180));
-      const value = vizData[idx] / 255;
-      const x = t * width;
-      const wave =
-        Math.sin(t * Math.PI * 4.2 + nowSec * (0.48 + low * 0.8) + 1.2) *
-        (3 + mid * 8);
-      const y = horizon + value * wingAmp * 0.45 + wave;
-      if (i === 0) canvasCtx.moveTo(x, y);
-      else canvasCtx.lineTo(x, y);
+    if (quality.drawSecondaryWing) {
+      canvasCtx.strokeStyle = `hsla(${hue - 18}, 86%, 70%, ${0.12 + mid * 0.24})`;
+      canvasCtx.beginPath();
+      for (let i = 0; i < wingCount; i += 1) {
+        const t = i / (wingCount - 1);
+        const idx = Math.min(vizData.length - 1, Math.floor(t * 180));
+        const value = vizData[idx] / 255;
+        const x = t * width;
+        const wave =
+          Math.sin(t * Math.PI * 4.2 + nowSec * (0.48 + low * 0.8) + 1.2) *
+          (3 + mid * 8);
+        const y = horizon + value * wingAmp * 0.45 + wave;
+        if (i === 0) canvasCtx.moveTo(x, y);
+        else canvasCtx.lineTo(x, y);
+      }
+      canvasCtx.stroke();
     }
-    canvasCtx.stroke();
 
     canvasCtx.restore();
 
@@ -406,6 +479,9 @@ function loadFile(file) {
   currentFileHint = `${(file.size / (1024 * 1024)).toFixed(1)} MB`;
   setTrackHint(currentFileHint);
   resetBpmEstimator();
+  if (typeof resetAdaptiveMixState === "function") {
+    resetAdaptiveMixState();
+  }
   seek.value = "0";
   seek.max = "100";
   currentTimeEl.textContent = "0:00";

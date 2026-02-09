@@ -41,9 +41,10 @@ const settingsClose = document.getElementById("settings-close");
 const langSegment = document.getElementById("lang-segment");
 const layoutSegment = document.getElementById("layout-segment");
 
-const APP_VERSION = "v3.0"; // Update this value on each release.
+const APP_VERSION = "v3.4"; // Update this value on each release.
 const EARLY_COUNT = 6;
 const SETTINGS_KEY = "spatial-mp3-player-settings-v1";
+const SETTINGS_SCHEMA_VERSION = 2;
 const SUPPORTED_FILE_RE = /\.(mp3|m4a|mp4|webm|opus|ogg|wav)$/i;
 const SEEK_STEP_SECONDS = 5;
 const VOLUME_STEP = 0.05;
@@ -162,6 +163,30 @@ const ACCOMPANIMENT_LAYOUT = {
 const BPM_RANGE = { min: 70, max: 190 };
 const BPM_INTERVAL_WINDOW = 32;
 const BPM_DETECTION_COOLDOWN = 0.21;
+const AUTO_MIX_PROFILE = {
+  enabled: true,
+  updateInterval: 0.18,
+  bassBoostMax: 0.22,
+  vocalBoostMax: 0.24,
+  trebleBoostMax: 0.12,
+};
+const OUTPUT_STAGE_PROFILE = {
+  compressor: {
+    threshold: -20,
+    knee: 14,
+    ratio: 2.5,
+    attack: 0.004,
+    release: 0.18,
+  },
+  limiter: {
+    threshold: -1.3,
+    knee: 0,
+    ratio: 18,
+    attack: 0.001,
+    release: 0.06,
+  },
+  makeupGain: 1.06,
+};
 
 let audioCtx;
 let sourceNode;
@@ -192,6 +217,9 @@ let reverbGain;
 let eqLowShelf;
 let eqMidPeaking;
 let eqHighShelf;
+let outputCompressor;
+let outputLimiter;
+let outputMakeupGain;
 let vizData;
 let vizWave;
 let vizLoopId;
@@ -232,6 +260,7 @@ let currentFileHint = "";
 let currentLanguage = DEFAULT_SETTINGS.language;
 let currentLayout = DEFAULT_SETTINGS.layout;
 let hasLoadedTrack = false;
+let adaptiveMixState = createAdaptiveMixDefaultState();
 
 const vizThemes = [
   {
@@ -1114,10 +1143,48 @@ function getSettingsSnapshot() {
   };
 }
 
+function createAdaptiveMixDefaultState() {
+  return {
+    bass: 1,
+    vocal: 1,
+    treble: 1,
+    vocalPresence: 0,
+    lastUpdateTime: 0,
+  };
+}
+
+function resetAdaptiveMixState() {
+  adaptiveMixState = createAdaptiveMixDefaultState();
+}
+
+function unwrapSettingsPayload(payload) {
+  if (!payload || typeof payload !== "object") {
+    return { settings: null, needsResave: false };
+  }
+  if (
+    typeof payload.schemaVersion === "number" &&
+    payload.data &&
+    typeof payload.data === "object"
+  ) {
+    return {
+      settings: payload.data,
+      needsResave: payload.schemaVersion !== SETTINGS_SCHEMA_VERSION,
+    };
+  }
+  return { settings: payload, needsResave: true };
+}
+
 function saveSettings() {
   if (isRestoringSettings) return;
   try {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(getSettingsSnapshot()));
+    localStorage.setItem(
+      SETTINGS_KEY,
+      JSON.stringify({
+        schemaVersion: SETTINGS_SCHEMA_VERSION,
+        updatedAt: Date.now(),
+        data: getSettingsSnapshot(),
+      })
+    );
   } catch {
     // Ignore storage failures (private mode, quota).
   }
@@ -1132,31 +1199,32 @@ function restoreSettings() {
   } catch {
     return;
   }
-  if (!parsed || typeof parsed !== "object") return;
+  const { settings, needsResave } = unwrapSettingsPayload(parsed);
+  if (!settings || typeof settings !== "object") return;
 
   isRestoringSettings = true;
   volume.value = clamp(
-    Number(parsed.volume ?? DEFAULT_SETTINGS.volume),
+    Number(settings.volume ?? DEFAULT_SETTINGS.volume),
     0,
     1,
     Number(DEFAULT_SETTINGS.volume)
   ).toString();
   depth.value = clamp(
-    Number(parsed.depth ?? DEFAULT_SETTINGS.depth),
+    Number(settings.depth ?? DEFAULT_SETTINGS.depth),
     0,
     100,
     Number(DEFAULT_SETTINGS.depth)
   ).toString();
   focus.value = clamp(
-    Number(parsed.focus ?? DEFAULT_SETTINGS.focus),
+    Number(settings.focus ?? DEFAULT_SETTINGS.focus),
     -100,
     100,
     Number(DEFAULT_SETTINGS.focus)
   ).toString();
-  motionToggle.checked = Boolean(parsed.motionToggle ?? DEFAULT_SETTINGS.motionToggle);
+  motionToggle.checked = Boolean(settings.motionToggle ?? DEFAULT_SETTINGS.motionToggle);
   if (motionIntensity) {
     motionIntensity.value = clamp(
-      Number(parsed.motionIntensity ?? DEFAULT_SETTINGS.motionIntensity),
+      Number(settings.motionIntensity ?? DEFAULT_SETTINGS.motionIntensity),
       0,
       160,
       Number(DEFAULT_SETTINGS.motionIntensity)
@@ -1164,7 +1232,7 @@ function restoreSettings() {
   }
   if (eqBass) {
     eqBass.value = clamp(
-      Number(parsed.eqBass ?? DEFAULT_SETTINGS.eqBass),
+      Number(settings.eqBass ?? DEFAULT_SETTINGS.eqBass),
       -12,
       12,
       Number(DEFAULT_SETTINGS.eqBass)
@@ -1172,7 +1240,7 @@ function restoreSettings() {
   }
   if (eqMid) {
     eqMid.value = clamp(
-      Number(parsed.eqMid ?? DEFAULT_SETTINGS.eqMid),
+      Number(settings.eqMid ?? DEFAULT_SETTINGS.eqMid),
       -12,
       12,
       Number(DEFAULT_SETTINGS.eqMid)
@@ -1180,7 +1248,7 @@ function restoreSettings() {
   }
   if (eqTreble) {
     eqTreble.value = clamp(
-      Number(parsed.eqTreble ?? DEFAULT_SETTINGS.eqTreble),
+      Number(settings.eqTreble ?? DEFAULT_SETTINGS.eqTreble),
       -12,
       12,
       Number(DEFAULT_SETTINGS.eqTreble)
@@ -1188,7 +1256,7 @@ function restoreSettings() {
   }
   if (earlyMix) {
     earlyMix.value = clamp(
-      Number(parsed.earlyMix ?? DEFAULT_SETTINGS.earlyMix),
+      Number(settings.earlyMix ?? DEFAULT_SETTINGS.earlyMix),
       0,
       140,
       Number(DEFAULT_SETTINGS.earlyMix)
@@ -1196,7 +1264,7 @@ function restoreSettings() {
   }
   if (reverbLength) {
     reverbLength.value = clamp(
-      Number(parsed.reverbLength ?? DEFAULT_SETTINGS.reverbLength),
+      Number(settings.reverbLength ?? DEFAULT_SETTINGS.reverbLength),
       60,
       160,
       Number(DEFAULT_SETTINGS.reverbLength)
@@ -1204,37 +1272,38 @@ function restoreSettings() {
   }
   if (reverbTone) {
     reverbTone.value = clamp(
-      Number(parsed.reverbTone ?? DEFAULT_SETTINGS.reverbTone),
+      Number(settings.reverbTone ?? DEFAULT_SETTINGS.reverbTone),
       0,
       100,
       Number(DEFAULT_SETTINGS.reverbTone)
     ).toString();
   }
-  if (vizToggle) vizToggle.checked = Boolean(parsed.vizToggle ?? DEFAULT_SETTINGS.vizToggle);
+  if (vizToggle) vizToggle.checked = Boolean(settings.vizToggle ?? DEFAULT_SETTINGS.vizToggle);
   if (videoBlend) {
     videoBlend.value = clamp(
-      Number(parsed.videoBlend ?? DEFAULT_SETTINGS.videoBlend),
+      Number(settings.videoBlend ?? DEFAULT_SETTINGS.videoBlend),
       0,
       100,
       Number(DEFAULT_SETTINGS.videoBlend)
     ).toString();
   }
-  if (typeof parsed.theme === "string" && vizThemes.some((theme) => theme.id === parsed.theme)) {
-    currentThemeId = parsed.theme;
+  if (typeof settings.theme === "string" && vizThemes.some((theme) => theme.id === settings.theme)) {
+    currentThemeId = settings.theme;
   }
-  if (typeof parsed.bypass3D === "boolean") {
-    bypass3D = parsed.bypass3D;
+  if (typeof settings.bypass3D === "boolean") {
+    bypass3D = settings.bypass3D;
   }
-  if (typeof parsed.presetId === "string" && isPresetIdValid(parsed.presetId)) {
-    pendingPresetId = parsed.presetId;
+  if (typeof settings.presetId === "string" && isPresetIdValid(settings.presetId)) {
+    pendingPresetId = settings.presetId;
   }
-  if (typeof parsed.language === "string" && SUPPORTED_LANGUAGES.includes(parsed.language)) {
-    currentLanguage = parsed.language;
+  if (typeof settings.language === "string" && SUPPORTED_LANGUAGES.includes(settings.language)) {
+    currentLanguage = settings.language;
   }
-  if (typeof parsed.layout === "string" && SUPPORTED_LAYOUTS.includes(parsed.layout)) {
-    currentLayout = parsed.layout;
+  if (typeof settings.layout === "string" && SUPPORTED_LAYOUTS.includes(settings.layout)) {
+    currentLayout = settings.layout;
   }
   isRestoringSettings = false;
+  if (needsResave) saveSettings();
 }
 
 function resetSettings() {
@@ -1262,6 +1331,7 @@ function resetSettings() {
   pendingPresetId = DEFAULT_SETTINGS.presetId;
   currentLanguage = DEFAULT_SETTINGS.language;
   currentLayout = DEFAULT_SETTINGS.layout;
+  resetAdaptiveMixState();
   isRestoringSettings = false;
 
   applyLayout();

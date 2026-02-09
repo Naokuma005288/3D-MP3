@@ -7,9 +7,16 @@
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
+    <div class="splash" id="app-splash" aria-hidden="true">
+      <div class="splash-inner">
+        <p class="splash-title">Spatial MP3 Full</p>
+        <p class="splash-sub">v3.4</p>
+        <div class="splash-bar"><div class="splash-fill"></div></div>
+      </div>
+    </div>
     <div class="app">
       <div class="edge-glow" aria-hidden="true"></div>
-      <div class="version-badge" id="app-version" data-i18n-aria-label="version.aria">v3.0</div>
+      <div class="version-badge" id="app-version" data-i18n-aria-label="version.aria">v3.4</div>
       <div class="settings-anchor">
         <button
           class="btn ghost mini"
@@ -213,6 +220,7 @@
       </div>
     </div>
 
+    <script src="splash.js"></script>
     <script src="main.js"></script>
     <script src="audio-engine.js"></script>
     <script src="app-ui.js"></script>
