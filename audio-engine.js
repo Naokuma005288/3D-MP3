@@ -2,9 +2,46 @@
 const POSITION_SMOOTH_TIME = 0.035;
 const LISTENER_SMOOTH_TIME = 0.05;
 const PRESET_TRANSITION_MS = 320;
+const OUTPUT_PROTECT_PROFILE = {
+  limiterStartDb: 1.8,
+  limiterRangeDb: 7.5,
+  compressorWeight: 0.032,
+  maxTrim: 0.24,
+  attackRate: 0.24,
+  releaseRate: 0.055,
+  releaseHoldRate: 0.016,
+  releaseHoldSec: 1.1,
+  activeThreshold: 0.035,
+};
+const OUTPUT_STAGE_V2_PROFILE = {
+  updateInterval: 0.1,
+  targetRms: 0.16,
+  rmsSmoothing: 0.2,
+  minGain: 0.88,
+  maxGain: 1.12,
+  downRate: 0.26,
+  upRate: 0.09,
+  limiterPenaltyDb: 9,
+  maxLimiterPenalty: 0.2,
+  motionPenalty: 0.08,
+};
+const MOTION_SAFETY_PROFILE = {
+  attack: 0.18,
+  release: 0.08,
+  gainComp: 0.08,
+  sideComp: 0.06,
+  ambientDamp: 0.06,
+};
 
 let presetTransitionFrame = null;
 let analysisData;
+let outputProtectionTrim = 1;
+let outputProtectionActive = false;
+let outputProtectionHoldUntil = 0;
+let outputAdaptiveGain = 1;
+let outputRmsAvg = OUTPUT_STAGE_V2_PROFILE.targetRms;
+let outputStageLastUpdate = 0;
+let outputMotionSafety = 0;
 
 function ensureAudio() {
   if (audioCtx) return;
@@ -277,6 +314,7 @@ function ensureAudio() {
   outputLimiter.connect(analyser);
   analyser.connect(audioCtx.destination);
 
+  resetOutputProtectionState();
   masterGain.gain.value = Number(volume.value);
   updateEqSettings();
   const initialPreset = presets.find((preset) => preset.id === pendingPresetId) || presets[0];
@@ -314,7 +352,7 @@ function updateEqSettings() {
   eqHighShelf.gain.setValueAtTime(trebleDb, audioCtx.currentTime);
 }
 
-function updateOutputStageGain(distanceNorm, vocalPresence, depthFactor) {
+function updateOutputStageGain(distanceNorm, vocalPresence, depthFactor, motionRisk = outputMotionSafety) {
   if (!audioCtx || !outputMakeupGain) return;
   if (bypass3D) {
     outputMakeupGain.gain.setTargetAtTime(OUTPUT_STAGE_PROFILE.makeupGain, audioCtx.currentTime, 0.06);
@@ -323,13 +361,136 @@ function updateOutputStageGain(distanceNorm, vocalPresence, depthFactor) {
   const distanceComp = 1 + distanceNorm * 0.085;
   const vocalComp = 1 - vocalPresence * 0.04;
   const depthComp = 1 + depthFactor * 0.03;
+  const motionComp = 1 + motionRisk * 0.06;
   const target = clamp(
-    OUTPUT_STAGE_PROFILE.makeupGain * distanceComp * vocalComp * depthComp,
+    OUTPUT_STAGE_PROFILE.makeupGain *
+      distanceComp *
+      vocalComp *
+      depthComp *
+      motionComp *
+      outputAdaptiveGain *
+      outputProtectionTrim,
     0.98,
-    1.22,
+    1.26,
     OUTPUT_STAGE_PROFILE.makeupGain
   );
   outputMakeupGain.gain.setTargetAtTime(target, audioCtx.currentTime, 0.05);
+}
+
+function updateOutputProtectionUi(active) {
+  if (app) {
+    app.classList.toggle("protect-active", active);
+  }
+  if (protectBadge) {
+    protectBadge.hidden = !active;
+  }
+  if (protectMeter) {
+    protectMeter.hidden = !protectMeterEnabled;
+  }
+}
+
+function resetOutputProtectionState() {
+  outputProtectionTrim = 1;
+  outputProtectionActive = false;
+  outputProtectionHoldUntil = 0;
+  outputAdaptiveGain = 1;
+  outputRmsAvg = OUTPUT_STAGE_V2_PROFILE.targetRms;
+  outputStageLastUpdate = 0;
+  outputMotionSafety = 0;
+  updateOutputProtectionUi(false);
+  if (protectMeter) {
+    protectMeter.textContent = "";
+  }
+}
+
+function updateGainStagingV2(timeSec, limiterReductionDb = 0) {
+  if (!audioCtx || !analyser || !vizWave) return;
+  if (audio.paused) return;
+  if (timeSec - outputStageLastUpdate < OUTPUT_STAGE_V2_PROFILE.updateInterval) return;
+  outputStageLastUpdate = timeSec;
+  analyser.getByteTimeDomainData(vizWave);
+
+  let sum = 0;
+  let count = 0;
+  for (let i = 0; i < vizWave.length; i += 2) {
+    const v = (vizWave[i] - 128) / 128;
+    sum += v * v;
+    count += 1;
+  }
+  if (!count) return;
+  const rms = Math.sqrt(sum / count);
+  outputRmsAvg = lerpNumber(outputRmsAvg, rms, OUTPUT_STAGE_V2_PROFILE.rmsSmoothing);
+
+  const rawGain = OUTPUT_STAGE_V2_PROFILE.targetRms / Math.max(0.0001, outputRmsAvg);
+  const limiterPenalty =
+    1 -
+    clamp(limiterReductionDb / OUTPUT_STAGE_V2_PROFILE.limiterPenaltyDb, 0, 1, 0) *
+      OUTPUT_STAGE_V2_PROFILE.maxLimiterPenalty;
+  const motionPenalty = 1 - outputMotionSafety * OUTPUT_STAGE_V2_PROFILE.motionPenalty;
+  const target = clamp(
+    rawGain * limiterPenalty * motionPenalty,
+    OUTPUT_STAGE_V2_PROFILE.minGain,
+    OUTPUT_STAGE_V2_PROFILE.maxGain,
+    1
+  );
+  const rate = target < outputAdaptiveGain ? OUTPUT_STAGE_V2_PROFILE.downRate : OUTPUT_STAGE_V2_PROFILE.upRate;
+  outputAdaptiveGain = lerpNumber(outputAdaptiveGain, target, rate);
+}
+
+function updateProtectionMeterUi(limiterReductionDb, stress) {
+  if (!protectMeter) return;
+  if (!protectMeterEnabled) {
+    protectMeter.hidden = true;
+    return;
+  }
+  protectMeter.hidden = false;
+  const trimDb = 20 * Math.log10(Math.max(0.0001, outputProtectionTrim));
+  const agcDb = 20 * Math.log10(Math.max(0.0001, outputAdaptiveGain));
+  const motionPct = Math.round(outputMotionSafety * 100);
+  const agcSign = agcDb >= 0 ? "+" : "";
+  protectMeter.textContent = `TRIM ${trimDb.toFixed(1)}dB | AGC ${agcSign}${agcDb.toFixed(1)}dB | LIM ${limiterReductionDb.toFixed(1)}dB | M ${motionPct}%`;
+  protectMeter.classList.toggle("active", stress > 0.04 || outputProtectionActive);
+}
+
+function updateOutputProtection(timeSec) {
+  if (!audioCtx || !outputLimiter || !outputCompressor) return;
+  const limiterReductionDb = Math.max(0, -(outputLimiter.reduction ?? 0));
+  const compressorReductionDb = Math.max(0, -(outputCompressor.reduction ?? 0));
+  updateGainStagingV2(timeSec, limiterReductionDb);
+  const limiterStress = clamp(
+    (limiterReductionDb - OUTPUT_PROTECT_PROFILE.limiterStartDb) / OUTPUT_PROTECT_PROFILE.limiterRangeDb,
+    0,
+    1,
+    0
+  );
+  const stress = clamp(
+    limiterStress + compressorReductionDb * OUTPUT_PROTECT_PROFILE.compressorWeight,
+    0,
+    1,
+    0
+  );
+  if (stress > 0.02) {
+    outputProtectionHoldUntil = timeSec + OUTPUT_PROTECT_PROFILE.releaseHoldSec;
+  }
+  const targetTrim = 1 - stress * OUTPUT_PROTECT_PROFILE.maxTrim;
+  const holdActive = timeSec < outputProtectionHoldUntil;
+  const releaseRate = holdActive ? OUTPUT_PROTECT_PROFILE.releaseHoldRate : OUTPUT_PROTECT_PROFILE.releaseRate;
+  const rate = targetTrim < outputProtectionTrim ? OUTPUT_PROTECT_PROFILE.attackRate : releaseRate;
+  outputProtectionTrim = lerpNumber(outputProtectionTrim, targetTrim, rate);
+  updateProtectionMeterUi(limiterReductionDb, stress);
+  const nowActive = outputProtectionTrim < 1 - OUTPUT_PROTECT_PROFILE.activeThreshold;
+  if (nowActive !== outputProtectionActive) {
+    outputProtectionActive = nowActive;
+    updateOutputProtectionUi(outputProtectionActive);
+    if (typeof showTransientHint === "function") {
+      showTransientHint(
+        outputProtectionActive
+          ? t("hint.protectOn", {}, "Output protection enabled")
+          : t("hint.protectOff", {}, "Output protection released"),
+        1100
+      );
+    }
+  }
 }
 
 function setPannerPosition(panner, x, y, z) {
@@ -490,11 +651,11 @@ function stopPresetTransition() {
   presetTransitionFrame = null;
 }
 
-function commitPresetState(snapshot, timeSec = 0) {
+function commitPresetState(snapshot, timeSec = 0, options = {}) {
   assignBaseState(snapshot);
   applyEarlySettings();
   updateMixGains();
-  updateReverbSettings();
+  updateReverbSettings({ rebuildImpulse: options.rebuildImpulse !== false });
   updatePannerPositions(timeSec);
 }
 
@@ -513,7 +674,7 @@ function applyPreset(preset, options = {}) {
   const nowSec = performance.now() / 1000;
   if (options.instant || transitionMs <= 0) {
     stopPresetTransition();
-    commitPresetState(snapshotFromPreset(preset), nowSec);
+    commitPresetState(snapshotFromPreset(preset), nowSec, { rebuildImpulse: true });
     saveSettings();
     return;
   }
@@ -526,10 +687,12 @@ function applyPreset(preset, options = {}) {
     const elapsed = performance.now() - startedAt;
     const t = clamp(elapsed / transitionMs, 0, 1, 1);
     const eased = t * t * (3 - 2 * t);
-    commitPresetState(lerpStateSnapshot(fromState, toState, eased), performance.now() / 1000);
+    commitPresetState(lerpStateSnapshot(fromState, toState, eased), performance.now() / 1000, {
+      rebuildImpulse: false,
+    });
     if (t >= 1) {
       presetTransitionFrame = null;
-      commitPresetState(toState, performance.now() / 1000);
+      commitPresetState(toState, performance.now() / 1000, { rebuildImpulse: true });
       saveSettings();
       return;
     }
@@ -681,7 +844,7 @@ function getReverbToneHz(distanceNorm = getDistanceNorm(lastDirectDistance)) {
   return Math.min(14500, Math.max(4200, scaled));
 }
 
-function updateMixGains(distance = lastDirectDistance) {
+function updateMixGains(distance = lastDirectDistance, motionRisk = outputMotionSafety) {
   if (!audioCtx) return;
   const safeDistance = clamp(
     distance,
@@ -699,10 +862,11 @@ function updateMixGains(distance = lastDirectDistance) {
   const autoVocal = adaptiveMixState?.vocal ?? 1;
   const autoTreble = adaptiveMixState?.treble ?? 1;
   const vocalPresence = adaptiveMixState?.vocalPresence ?? 0;
+  const safetyGainComp = 1 + motionRisk * MOTION_SAFETY_PROFILE.gainComp;
   const directGainValue = bypass3D
     ? baseState.direct.gain
-    : baseState.direct.gain * profile.direct;
-  updateOutputStageGain(profile.distanceNorm, vocalPresence, depthFactor);
+    : baseState.direct.gain * profile.direct * safetyGainComp;
+  updateOutputStageGain(profile.distanceNorm, vocalPresence, depthFactor, motionRisk);
   directGain.gain.setValueAtTime(directGainValue, audioCtx.currentTime);
   if (accompanimentLeftGain && accompanimentRightGain) {
     const sideBase = bypass3D ? 0.62 : 0.48 + (1 - depthFactor) * 0.24;
@@ -714,12 +878,13 @@ function updateMixGains(distance = lastDirectDistance) {
       vocalFocusTilt *
       STEREO_TUNE.sideGainBoost *
       (bypass3D ? 1 : VOCAL_CLARITY.sideAttenuation);
+    const motionComp = 1 + motionRisk * MOTION_SAFETY_PROFILE.sideComp;
     accompanimentLeftGain.gain.setValueAtTime(
-      sideGain * STEREO_TUNE.leftGainBias,
+      sideGain * motionComp * STEREO_TUNE.leftGainBias,
       audioCtx.currentTime
     );
     accompanimentRightGain.gain.setValueAtTime(
-      sideGain * STEREO_TUNE.rightGainBias,
+      sideGain * motionComp * STEREO_TUNE.rightGainBias,
       audioCtx.currentTime
     );
   }
@@ -767,6 +932,7 @@ function updateMixGains(distance = lastDirectDistance) {
       profile.early *
       resonance.reverb *
       (1 - vocalPresence * 0.08) *
+      (1 - motionRisk * MOTION_SAFETY_PROFILE.ambientDamp) *
       VOCAL_CLARITY.earlyAttenuation,
     audioCtx.currentTime
   );
@@ -777,15 +943,19 @@ function updateMixGains(distance = lastDirectDistance) {
       resonance.reverb *
       (0.82 + toneFactor * 0.22) *
       (1 - vocalPresence * 0.16) *
+      (1 - motionRisk * MOTION_SAFETY_PROFILE.ambientDamp) *
       VOCAL_CLARITY.reverbAttenuation,
     audioCtx.currentTime
   );
 }
 
-function updateReverbSettings() {
+function updateReverbSettings(options = {}) {
   if (!audioCtx) return;
+  const rebuildImpulse = options.rebuildImpulse !== false;
   const lengthFactor = getReverbLengthFactor();
-  setReverb(baseState.reverb.duration * lengthFactor, baseState.reverb.decay * lengthFactor);
+  if (rebuildImpulse) {
+    setReverb(baseState.reverb.duration * lengthFactor, baseState.reverb.decay * lengthFactor);
+  }
   if (reverbPreDelay) {
     reverbPreDelay.delayTime.setValueAtTime(getReverbPreDelay(), audioCtx.currentTime);
   }
@@ -849,6 +1019,7 @@ function getPartMotionOffset(
 function updatePannerPositions(time) {
   if (!audioCtx) return;
   updateAdaptiveMixProfile(time);
+  updateOutputProtection(time);
   updateListenerPose(time);
   const focusOffset = (Number(focus.value) / 100) * 1.2;
   const motionScale = getMotionIntensityFactor();
@@ -891,13 +1062,18 @@ function updatePannerPositions(time) {
       };
     }
   }
+  const motionRiskRaw = motionActive
+    ? clamp(Math.hypot(offset.x, offset.y) * 0.4 + Math.abs(offset.z) * 0.22 + motionSpeed * 0.26, 0, 1, 0)
+    : 0;
+  const motionRate = motionRiskRaw > outputMotionSafety ? MOTION_SAFETY_PROFILE.attack : MOTION_SAFETY_PROFILE.release;
+  outputMotionSafety = lerpNumber(outputMotionSafety, motionRiskRaw, motionRate);
 
   const spatialStrength = bypass3D ? 0 : 1;
   const baseX = base.x + offset.x;
   const baseY = base.y + offset.y;
   const baseZ = base.z + offset.z - focusOffset;
   const directDistance = Math.hypot(baseX, baseY, baseZ);
-  updateMixGains(directDistance);
+  updateMixGains(directDistance, outputMotionSafety);
   const separation = (0.18 + depthFactor * 0.55) * spatialStrength;
   if (accompanimentLeftPanner && accompanimentRightPanner) {
     const spread = (0.95 + depthFactor * 0.35) * (bypass3D ? 0.88 : 1);

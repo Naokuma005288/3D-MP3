@@ -17,6 +17,22 @@ function resizeCanvas() {
 
 function updateRenderScale(now) {
   if (!visualizerEnabled) return;
+  const fixedScale =
+    currentQualityMode === "high"
+      ? 1
+      : currentQualityMode === "balanced"
+        ? 0.85
+        : currentQualityMode === "eco"
+          ? 0.7
+          : null;
+  if (fixedScale !== null) {
+    if (Math.abs(renderScale - fixedScale) > 0.01) {
+      renderScale = fixedScale;
+      resizeCanvas();
+    }
+    lastFrameStamp = now;
+    return;
+  }
   if (!lastFrameStamp) {
     lastFrameStamp = now;
     return;
@@ -92,6 +108,36 @@ function getVizPresetProfile() {
 }
 
 function getVizQualityProfile(width, height) {
+  if (currentQualityMode === "high") {
+    return {
+      name: "high",
+      barCount: 56,
+      waveStep: 3,
+      wingCount: 40,
+      drawSecondaryRibbon: true,
+      drawSecondaryWing: true,
+    };
+  }
+  if (currentQualityMode === "balanced") {
+    return {
+      name: "mid",
+      barCount: 40,
+      waveStep: 5,
+      wingCount: 26,
+      drawSecondaryRibbon: true,
+      drawSecondaryWing: false,
+    };
+  }
+  if (currentQualityMode === "eco") {
+    return {
+      name: "low",
+      barCount: 24,
+      waveStep: 8,
+      wingCount: 14,
+      drawSecondaryRibbon: false,
+      drawSecondaryWing: false,
+    };
+  }
   const area = width * height;
   if (frameAvg > 24 || renderScale <= 0.7 || area > 2200000) {
     return {
@@ -482,6 +528,9 @@ function loadFile(file) {
   if (typeof resetAdaptiveMixState === "function") {
     resetAdaptiveMixState();
   }
+  if (typeof resetOutputProtectionState === "function") {
+    resetOutputProtectionState();
+  }
   seek.value = "0";
   seek.max = "100";
   currentTimeEl.textContent = "0:00";
@@ -549,6 +598,75 @@ function stepVolume(delta) {
   saveSettings();
 }
 
+function getQualityLabel(mode) {
+  if (mode === "high") return t("settings.qualityHigh", {}, "High");
+  if (mode === "balanced") return t("settings.qualityBalanced", {}, "Balanced");
+  if (mode === "eco") return t("settings.qualityEco", {}, "Eco");
+  return t("settings.qualityAuto", {}, "Auto");
+}
+
+function cyclePreset(step) {
+  if (!Array.isArray(presets) || presets.length === 0) return;
+  const activeId = currentPreset ? currentPreset.id : pendingPresetId || presets[0].id;
+  const index = Math.max(0, presets.findIndex((preset) => preset.id === activeId));
+  const nextIndex = (index + step + presets.length) % presets.length;
+  const preset = presets[nextIndex];
+  applyPreset(preset);
+  if (typeof showTransientHint === "function") {
+    const presetName = getPresetName(preset);
+    showTransientHint(t("hint.shortcutPreset", { value: presetName }, `Preset: ${presetName}`));
+  }
+}
+
+function toggleMotionShortcut() {
+  motionToggle.checked = !motionToggle.checked;
+  updatePannerPositions(performance.now() / 1000);
+  updateLoopState();
+  saveSettings();
+  if (typeof showTransientHint === "function") {
+    showTransientHint(
+      motionToggle.checked
+        ? t("hint.shortcutMotionOn", {}, "Motion: ON")
+        : t("hint.shortcutMotionOff", {}, "Motion: OFF")
+    );
+  }
+}
+
+function toggleVisualizerShortcut() {
+  if (!vizToggle) return;
+  vizToggle.checked = !vizToggle.checked;
+  setVisualizerEnabled(vizToggle.checked);
+  if (typeof showTransientHint === "function") {
+    showTransientHint(
+      vizToggle.checked
+        ? t("hint.shortcutVizOn", {}, "Visualizer: ON")
+        : t("hint.shortcutVizOff", {}, "Visualizer: OFF")
+    );
+  }
+}
+
+function cycleQualityModeShortcut() {
+  const modes = SUPPORTED_QUALITY_MODES;
+  const index = Math.max(0, modes.indexOf(currentQualityMode));
+  const next = modes[(index + 1) % modes.length];
+  setQualityMode(next);
+  if (typeof showTransientHint === "function") {
+    const label = getQualityLabel(next);
+    showTransientHint(t("hint.shortcutQuality", { value: label }, `Quality: ${label}`));
+  }
+}
+
+function cycleLanguageShortcut() {
+  const langs = SUPPORTED_LANGUAGES;
+  const index = Math.max(0, langs.indexOf(currentLanguage));
+  const next = langs[(index + 1) % langs.length];
+  setLanguage(next);
+  if (typeof showTransientHint === "function") {
+    const label = t(`settings.lang.${next}`, {}, next);
+    showTransientHint(t("hint.shortcutLanguage", { value: label }, `Language: ${label}`));
+  }
+}
+
 function isEditableTarget(target) {
   if (!target || !(target instanceof HTMLElement)) return false;
   if (target.isContentEditable) return true;
@@ -557,13 +675,27 @@ function isEditableTarget(target) {
 }
 
 function handleGlobalKeydown(event) {
-  if (event.code === "Escape" && settingsPanel && !settingsPanel.hidden) {
-    event.preventDefault();
-    closeSettingsPanel();
-    return;
+  if (event.code === "Escape") {
+    if (helpPanel && !helpPanel.hidden) {
+      event.preventDefault();
+      closeHelpPanel();
+      return;
+    }
+    if (settingsPanel && !settingsPanel.hidden) {
+      event.preventDefault();
+      closeSettingsPanel();
+      return;
+    }
   }
   if (event.altKey || event.ctrlKey || event.metaKey) return;
   if (isEditableTarget(event.target)) return;
+  if (helpPanel && !helpPanel.hidden) {
+    if (event.code === "KeyH" || (event.code === "Slash" && event.shiftKey)) {
+      event.preventDefault();
+      closeHelpPanel();
+    }
+    return;
+  }
   if (settingsPanel && !settingsPanel.hidden && event.target instanceof HTMLElement) {
     if (event.target.closest("#settings-panel")) return;
   }
@@ -585,6 +717,40 @@ function handleGlobalKeydown(event) {
     case "KeyB":
       event.preventDefault();
       toggleBypass();
+      break;
+    case "BracketLeft":
+      event.preventDefault();
+      cyclePreset(-1);
+      break;
+    case "BracketRight":
+      event.preventDefault();
+      cyclePreset(1);
+      break;
+    case "KeyM":
+      event.preventDefault();
+      toggleMotionShortcut();
+      break;
+    case "KeyV":
+      event.preventDefault();
+      toggleVisualizerShortcut();
+      break;
+    case "KeyQ":
+      event.preventDefault();
+      cycleQualityModeShortcut();
+      break;
+    case "KeyL":
+      event.preventDefault();
+      cycleLanguageShortcut();
+      break;
+    case "KeyH":
+      event.preventDefault();
+      toggleHelpPanel();
+      break;
+    case "Slash":
+      if (event.shiftKey) {
+        event.preventDefault();
+        toggleHelpPanel();
+      }
       break;
     case "ArrowRight":
       event.preventDefault();
@@ -669,6 +835,7 @@ function updateVolume() {
 
 function openSettingsPanel() {
   if (!settingsPanel || !settingsBtn) return;
+  closeHelpPanel();
   settingsPanel.hidden = false;
   settingsBtn.setAttribute("aria-expanded", "true");
 }
@@ -685,6 +852,28 @@ function toggleSettingsPanel() {
     openSettingsPanel();
   } else {
     closeSettingsPanel();
+  }
+}
+
+function openHelpPanel() {
+  if (!helpPanel || !helpBtn) return;
+  closeSettingsPanel();
+  helpPanel.hidden = false;
+  helpBtn.setAttribute("aria-expanded", "true");
+}
+
+function closeHelpPanel() {
+  if (!helpPanel || !helpBtn) return;
+  helpPanel.hidden = true;
+  helpBtn.setAttribute("aria-expanded", "false");
+}
+
+function toggleHelpPanel() {
+  if (!helpPanel) return;
+  if (helpPanel.hidden) {
+    openHelpPanel();
+  } else {
+    closeHelpPanel();
   }
 }
 
@@ -797,6 +986,15 @@ if (settingsBtn) {
 if (settingsClose) {
   settingsClose.addEventListener("click", closeSettingsPanel);
 }
+if (helpBtn) {
+  helpBtn.addEventListener("click", (event) => {
+    event.stopPropagation();
+    toggleHelpPanel();
+  });
+}
+if (helpClose) {
+  helpClose.addEventListener("click", closeHelpPanel);
+}
 if (langSegment) {
   langSegment.querySelectorAll("button[data-lang]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -811,12 +1009,30 @@ if (layoutSegment) {
     });
   });
 }
+if (qualitySegment) {
+  qualitySegment.querySelectorAll("button[data-quality]").forEach((button) => {
+    button.addEventListener("click", () => {
+      setQualityMode(button.dataset.quality);
+    });
+  });
+}
+if (protectMeterToggle) {
+  protectMeterToggle.addEventListener("change", () => {
+    setProtectMeterEnabled(protectMeterToggle.checked);
+  });
+}
 document.addEventListener("keydown", handleGlobalKeydown);
 document.addEventListener("click", (event) => {
-  if (!settingsPanel || settingsPanel.hidden) return;
-  if (settingsPanel.contains(event.target)) return;
-  if (settingsBtn && settingsBtn.contains(event.target)) return;
+  const target = event.target;
+  const settingsOpen = Boolean(settingsPanel && !settingsPanel.hidden);
+  const helpOpen = Boolean(helpPanel && !helpPanel.hidden);
+  if (!settingsOpen && !helpOpen) return;
+  if (settingsPanel && settingsPanel.contains(target)) return;
+  if (helpPanel && helpPanel.contains(target)) return;
+  if (settingsBtn && settingsBtn.contains(target)) return;
+  if (helpBtn && helpBtn.contains(target)) return;
   closeSettingsPanel();
+  closeHelpPanel();
 });
 document.addEventListener("dragover", (event) => {
   if (isFileDrag(event)) event.preventDefault();
@@ -836,6 +1052,8 @@ void initWasmMath();
 restoreSettings();
 setLayout(currentLayout, false);
 setLanguage(currentLanguage, false);
+setQualityMode(currentQualityMode, false);
+setProtectMeterEnabled(protectMeterEnabled, false);
 updatePlayState();
 syncFullscreenState();
 updateThemeButtons();

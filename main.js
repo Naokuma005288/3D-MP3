@@ -35,16 +35,23 @@ const vizTheme = document.getElementById("viz-theme");
 const vizToggle = document.getElementById("viz-toggle");
 const videoBlend = document.getElementById("video-blend");
 const versionBadge = document.getElementById("app-version");
+const protectBadge = document.getElementById("protect-badge");
+const protectMeter = document.getElementById("protect-meter");
 const settingsBtn = document.getElementById("settings-btn");
 const settingsPanel = document.getElementById("settings-panel");
 const settingsClose = document.getElementById("settings-close");
+const helpBtn = document.getElementById("help-btn");
+const helpPanel = document.getElementById("help-panel");
+const helpClose = document.getElementById("help-close");
 const langSegment = document.getElementById("lang-segment");
 const layoutSegment = document.getElementById("layout-segment");
+const qualitySegment = document.getElementById("quality-segment");
+const protectMeterToggle = document.getElementById("protect-meter-toggle");
 
-const APP_VERSION = "v3.4"; // Update this value on each release.
+const APP_VERSION = "v3.8"; // Update this value on each release.
 const EARLY_COUNT = 6;
 const SETTINGS_KEY = "spatial-mp3-player-settings-v1";
-const SETTINGS_SCHEMA_VERSION = 2;
+const SETTINGS_SCHEMA_VERSION = 4;
 const SUPPORTED_FILE_RE = /\.(mp3|m4a|mp4|webm|opus|ogg|wav)$/i;
 const SEEK_STEP_SECONDS = 5;
 const VOLUME_STEP = 0.05;
@@ -67,9 +74,12 @@ const DEFAULT_SETTINGS = {
   presetId: "studio",
   language: "ja",
   layout: "vertical",
+  qualityMode: "auto",
+  protectMeter: false,
 };
 const SUPPORTED_LANGUAGES = ["ja", "en", "ko", "zh"];
 const SUPPORTED_LAYOUTS = ["vertical", "horizontal"];
+const SUPPORTED_QUALITY_MODES = ["auto", "high", "balanced", "eco"];
 const DISTANCE_MODEL = {
   near: 0.8,
   far: 4.1,
@@ -259,8 +269,12 @@ let beatPulseLastTime = 0;
 let currentFileHint = "";
 let currentLanguage = DEFAULT_SETTINGS.language;
 let currentLayout = DEFAULT_SETTINGS.layout;
+let currentQualityMode = DEFAULT_SETTINGS.qualityMode;
+let protectMeterEnabled = DEFAULT_SETTINGS.protectMeter;
 let hasLoadedTrack = false;
 let adaptiveMixState = createAdaptiveMixDefaultState();
+let transientHintUntil = 0;
+let transientHintTimer = 0;
 
 const vizThemes = [
   {
@@ -491,6 +505,7 @@ const TRANSLATIONS = {
   ja: {
     meta: { title: "空間MP3プレイヤー" },
     version: { aria: "アプリバージョン" },
+    labels: { protect: "保護中" },
     brand: {
       title: "3D空間オーディオプレイヤー",
       sub: "既存の楽曲を奥行きのある立体感へ。",
@@ -499,6 +514,7 @@ const TRANSLATIONS = {
       load: "音声ファイルを読み込む",
       reset: "設定を初期化",
       settings: "設定",
+      help: "ヘルプ",
       close: "閉じる",
       fullscreen: "全画面",
       fullscreenClose: "閉じる",
@@ -531,6 +547,8 @@ const TRANSLATIONS = {
       title: "設定",
       language: "言語",
       layout: "UIレイアウト",
+      quality: "品質モード",
+      protectMeter: "保護メーター",
       lang: {
         ja: "日本語",
         en: "English",
@@ -539,6 +557,24 @@ const TRANSLATIONS = {
       },
       layoutVertical: "縦",
       layoutHorizontal: "横",
+      qualityAuto: "Auto",
+      qualityHigh: "High",
+      qualityBalanced: "Balanced",
+      qualityEco: "Eco",
+    },
+    help: {
+      title: "ショートカット",
+      playPause: "再生 / 一時停止",
+      stop: "停止",
+      seek: "5秒シーク",
+      volume: "音量調整",
+      fullscreen: "ビジュアライザー全画面",
+      bypass: "3D A/B切替",
+      preset: "プリセット切替",
+      motion: "モーション ON/OFF",
+      visualizer: "ビジュアライザー ON/OFF",
+      quality: "品質モード切替",
+      language: "言語切替",
     },
     track: {
       unloaded: "未読み込み",
@@ -551,6 +587,15 @@ const TRANSLATIONS = {
       settingsReset: "設定を初期化しました",
       bpmExact: "BPM {value}",
       bpmApprox: "BPM~{value}",
+      shortcutPreset: "プリセット: {value}",
+      shortcutMotionOn: "モーション: ON",
+      shortcutMotionOff: "モーション: OFF",
+      shortcutVizOn: "ビジュアライザー: ON",
+      shortcutVizOff: "ビジュアライザー: OFF",
+      shortcutQuality: "品質モード: {value}",
+      shortcutLanguage: "言語: {value}",
+      protectOn: "出力保護を有効化",
+      protectOff: "出力保護を解除",
     },
     ab: {
       on: "A/B: 3D ON",
@@ -571,6 +616,7 @@ const TRANSLATIONS = {
   en: {
     meta: { title: "Spatial MP3 Player" },
     version: { aria: "App version" },
+    labels: { protect: "Protect" },
     brand: {
       title: "3D Spatial Audio Player",
       sub: "Turn existing tracks into a deep 3D sound stage.",
@@ -579,6 +625,7 @@ const TRANSLATIONS = {
       load: "Load audio file",
       reset: "Reset settings",
       settings: "Settings",
+      help: "Help",
       close: "Close",
       fullscreen: "Fullscreen",
       fullscreenClose: "Exit",
@@ -611,6 +658,8 @@ const TRANSLATIONS = {
       title: "Settings",
       language: "Language",
       layout: "UI Layout",
+      quality: "Quality Mode",
+      protectMeter: "Protection Meter",
       lang: {
         ja: "Japanese",
         en: "English",
@@ -619,6 +668,24 @@ const TRANSLATIONS = {
       },
       layoutVertical: "Vertical",
       layoutHorizontal: "Horizontal",
+      qualityAuto: "Auto",
+      qualityHigh: "High",
+      qualityBalanced: "Balanced",
+      qualityEco: "Eco",
+    },
+    help: {
+      title: "Shortcuts",
+      playPause: "Play / Pause",
+      stop: "Stop",
+      seek: "Seek 5 seconds",
+      volume: "Adjust volume",
+      fullscreen: "Visualizer fullscreen",
+      bypass: "3D A/B toggle",
+      preset: "Switch preset",
+      motion: "Motion ON/OFF",
+      visualizer: "Visualizer ON/OFF",
+      quality: "Cycle quality mode",
+      language: "Cycle language",
     },
     track: {
       unloaded: "Not loaded",
@@ -631,6 +698,15 @@ const TRANSLATIONS = {
       settingsReset: "Settings were reset",
       bpmExact: "BPM {value}",
       bpmApprox: "BPM~{value}",
+      shortcutPreset: "Preset: {value}",
+      shortcutMotionOn: "Motion: ON",
+      shortcutMotionOff: "Motion: OFF",
+      shortcutVizOn: "Visualizer: ON",
+      shortcutVizOff: "Visualizer: OFF",
+      shortcutQuality: "Quality: {value}",
+      shortcutLanguage: "Language: {value}",
+      protectOn: "Output protection enabled",
+      protectOff: "Output protection released",
     },
     ab: {
       on: "A/B: 3D ON",
@@ -651,6 +727,7 @@ const TRANSLATIONS = {
   ko: {
     meta: { title: "공간 MP3 플레이어" },
     version: { aria: "앱 버전" },
+    labels: { protect: "보호 중" },
     brand: {
       title: "3D 공간 오디오 플레이어",
       sub: "기존 곡을 더 깊은 3D 공간감으로 확장합니다.",
@@ -659,6 +736,7 @@ const TRANSLATIONS = {
       load: "오디오 파일 불러오기",
       reset: "설정 초기화",
       settings: "설정",
+      help: "도움말",
       close: "닫기",
       fullscreen: "전체화면",
       fullscreenClose: "닫기",
@@ -691,6 +769,8 @@ const TRANSLATIONS = {
       title: "설정",
       language: "언어",
       layout: "UI 레이아웃",
+      quality: "품질 모드",
+      protectMeter: "보호 미터",
       lang: {
         ja: "일본어",
         en: "영어",
@@ -699,6 +779,24 @@ const TRANSLATIONS = {
       },
       layoutVertical: "세로",
       layoutHorizontal: "가로",
+      qualityAuto: "자동",
+      qualityHigh: "고품질",
+      qualityBalanced: "균형",
+      qualityEco: "절전",
+    },
+    help: {
+      title: "단축키",
+      playPause: "재생 / 일시정지",
+      stop: "정지",
+      seek: "5초 탐색",
+      volume: "볼륨 조절",
+      fullscreen: "비주얼라이저 전체화면",
+      bypass: "3D A/B 전환",
+      preset: "프리셋 전환",
+      motion: "모션 ON/OFF",
+      visualizer: "비주얼라이저 ON/OFF",
+      quality: "품질 모드 순환",
+      language: "언어 순환",
     },
     track: {
       unloaded: "로드되지 않음",
@@ -711,6 +809,15 @@ const TRANSLATIONS = {
       settingsReset: "설정을 초기화했습니다",
       bpmExact: "BPM {value}",
       bpmApprox: "BPM~{value}",
+      shortcutPreset: "프리셋: {value}",
+      shortcutMotionOn: "모션: ON",
+      shortcutMotionOff: "모션: OFF",
+      shortcutVizOn: "비주얼라이저: ON",
+      shortcutVizOff: "비주얼라이저: OFF",
+      shortcutQuality: "품질: {value}",
+      shortcutLanguage: "언어: {value}",
+      protectOn: "출력 보호 활성화",
+      protectOff: "출력 보호 해제",
     },
     ab: {
       on: "A/B: 3D ON",
@@ -731,6 +838,7 @@ const TRANSLATIONS = {
   zh: {
     meta: { title: "空间 MP3 播放器" },
     version: { aria: "应用版本" },
+    labels: { protect: "保护中" },
     brand: {
       title: "3D 空间音频播放器",
       sub: "把现有歌曲扩展成更有纵深的 3D 声场。",
@@ -739,6 +847,7 @@ const TRANSLATIONS = {
       load: "加载音频文件",
       reset: "重置设置",
       settings: "设置",
+      help: "帮助",
       close: "关闭",
       fullscreen: "全屏",
       fullscreenClose: "退出",
@@ -771,6 +880,8 @@ const TRANSLATIONS = {
       title: "设置",
       language: "语言",
       layout: "UI 布局",
+      quality: "质量模式",
+      protectMeter: "保护电平表",
       lang: {
         ja: "日语",
         en: "英语",
@@ -779,6 +890,24 @@ const TRANSLATIONS = {
       },
       layoutVertical: "竖向",
       layoutHorizontal: "横向",
+      qualityAuto: "自动",
+      qualityHigh: "高质量",
+      qualityBalanced: "均衡",
+      qualityEco: "节能",
+    },
+    help: {
+      title: "快捷键",
+      playPause: "播放 / 暂停",
+      stop: "停止",
+      seek: "快进/后退 5 秒",
+      volume: "调节音量",
+      fullscreen: "可视化全屏",
+      bypass: "3D A/B 切换",
+      preset: "切换预设",
+      motion: "动态 ON/OFF",
+      visualizer: "可视化 ON/OFF",
+      quality: "循环质量模式",
+      language: "循环语言",
     },
     track: {
       unloaded: "未加载",
@@ -791,6 +920,15 @@ const TRANSLATIONS = {
       settingsReset: "设置已重置",
       bpmExact: "BPM {value}",
       bpmApprox: "BPM~{value}",
+      shortcutPreset: "预设: {value}",
+      shortcutMotionOn: "动态: ON",
+      shortcutMotionOff: "动态: OFF",
+      shortcutVizOn: "可视化: ON",
+      shortcutVizOff: "可视化: OFF",
+      shortcutQuality: "质量: {value}",
+      shortcutLanguage: "语言: {value}",
+      protectOn: "已启用输出保护",
+      protectOff: "已解除输出保护",
     },
     ab: {
       on: "A/B: 3D ON",
@@ -850,6 +988,13 @@ function updateLayoutButtons() {
   });
 }
 
+function updateQualityButtons() {
+  if (!qualitySegment) return;
+  qualitySegment.querySelectorAll("button[data-quality]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.quality === currentQualityMode);
+  });
+}
+
 function applyLayout() {
   if (app) {
     app.classList.toggle("layout-horizontal", currentLayout === "horizontal");
@@ -891,6 +1036,7 @@ function applyLanguage() {
   applyLocalizedStaticText();
   applyTrackPlaceholders();
   updateLanguageButtons();
+  updateQualityButtons();
   if (typeof updatePlayState === "function") updatePlayState();
   if (typeof syncFullscreenState === "function") syncFullscreenState();
   if (typeof updateBypassButton === "function") updateBypassButton();
@@ -908,6 +1054,28 @@ function setLayout(layout, shouldPersist = true) {
   if (!SUPPORTED_LAYOUTS.includes(layout)) return;
   currentLayout = layout;
   applyLayout();
+  if (shouldPersist) saveSettings();
+}
+
+function setQualityMode(mode, shouldPersist = true) {
+  if (!SUPPORTED_QUALITY_MODES.includes(mode)) return;
+  currentQualityMode = mode;
+  updateQualityButtons();
+  if (typeof resizeCanvas === "function") resizeCanvas();
+  if (shouldPersist) saveSettings();
+}
+
+function setProtectMeterEnabled(enabled, shouldPersist = true) {
+  protectMeterEnabled = Boolean(enabled);
+  if (protectMeterToggle) {
+    protectMeterToggle.checked = protectMeterEnabled;
+  }
+  if (protectMeter) {
+    protectMeter.hidden = !protectMeterEnabled;
+    if (!protectMeterEnabled) {
+      protectMeter.textContent = "";
+    }
+  }
   if (shouldPersist) saveSettings();
 }
 
@@ -980,6 +1148,26 @@ function setTrackHint(message, isError = false) {
   if (!trackHint) return;
   trackHint.textContent = message;
   trackHint.classList.toggle("is-error", isError);
+}
+
+function showTransientHint(message, durationMs = 1400) {
+  if (!trackHint || !message) return;
+  const duration = clamp(Number(durationMs), 300, 6000, 1400);
+  transientHintUntil = performance.now() + duration;
+  setTrackHint(message, false);
+  if (transientHintTimer) {
+    clearTimeout(transientHintTimer);
+  }
+  transientHintTimer = setTimeout(() => {
+    transientHintTimer = 0;
+    transientHintUntil = 0;
+    if (trackHint.classList.contains("is-error")) return;
+    if (currentFileHint) {
+      setTrackHint(currentFileHint, false);
+      return;
+    }
+    setTrackHint(t("track.selectFile"), false);
+  }, duration + 20);
 }
 
 function resetBpmEstimator() {
@@ -1097,6 +1285,7 @@ function getMotionIntensityFactor() {
 function updateBpmHint(nowSec) {
   if (!currentFileHint || !trackHint) return;
   if (trackHint.classList.contains("is-error")) return;
+  if (transientHintUntil > performance.now()) return;
   if (nowSec - lastBpmUiUpdate < 0.75) return;
   lastBpmUiUpdate = nowSec;
   if (bpmEstimate <= 0 || bpmConfidence < 0.4) {
@@ -1140,6 +1329,8 @@ function getSettingsSnapshot() {
     presetId: currentPreset?.id ?? pendingPresetId ?? DEFAULT_SETTINGS.presetId,
     language: currentLanguage,
     layout: currentLayout,
+    qualityMode: currentQualityMode,
+    protectMeter: protectMeterEnabled,
   };
 }
 
@@ -1302,6 +1493,15 @@ function restoreSettings() {
   if (typeof settings.layout === "string" && SUPPORTED_LAYOUTS.includes(settings.layout)) {
     currentLayout = settings.layout;
   }
+  if (
+    typeof settings.qualityMode === "string" &&
+    SUPPORTED_QUALITY_MODES.includes(settings.qualityMode)
+  ) {
+    currentQualityMode = settings.qualityMode;
+  }
+  if (typeof settings.protectMeter === "boolean") {
+    protectMeterEnabled = settings.protectMeter;
+  }
   isRestoringSettings = false;
   if (needsResave) saveSettings();
 }
@@ -1331,11 +1531,15 @@ function resetSettings() {
   pendingPresetId = DEFAULT_SETTINGS.presetId;
   currentLanguage = DEFAULT_SETTINGS.language;
   currentLayout = DEFAULT_SETTINGS.layout;
+  currentQualityMode = DEFAULT_SETTINGS.qualityMode;
+  protectMeterEnabled = DEFAULT_SETTINGS.protectMeter;
   resetAdaptiveMixState();
   isRestoringSettings = false;
 
   applyLayout();
   applyLanguage();
+  updateQualityButtons();
+  setProtectMeterEnabled(protectMeterEnabled, false);
   updateThemeButtons();
   updateBypassButton();
   setVisualizerEnabled(vizToggle ? vizToggle.checked : true);

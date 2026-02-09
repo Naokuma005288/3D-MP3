@@ -10,24 +10,38 @@
     <div class="splash" id="app-splash" aria-hidden="true">
       <div class="splash-inner">
         <p class="splash-title">Spatial MP3 Full</p>
-        <p class="splash-sub">v3.4</p>
+        <p class="splash-sub">v3.8</p>
         <div class="splash-bar"><div class="splash-fill"></div></div>
       </div>
     </div>
     <div class="app">
       <div class="edge-glow" aria-hidden="true"></div>
-      <div class="version-badge" id="app-version" data-i18n-aria-label="version.aria">v3.4</div>
+      <div class="version-badge" id="app-version" data-i18n-aria-label="version.aria">v3.8</div>
+      <div class="protect-badge" id="protect-badge" data-i18n="labels.protect" hidden>保護中</div>
+      <div class="protect-meter" id="protect-meter" hidden></div>
       <div class="settings-anchor">
-        <button
-          class="btn ghost mini"
-          id="settings-btn"
-          type="button"
-          aria-haspopup="dialog"
-          aria-expanded="false"
-          data-i18n="buttons.settings"
-        >
-          設定
-        </button>
+        <div class="settings-actions">
+          <button
+            class="btn ghost mini"
+            id="settings-btn"
+            type="button"
+            aria-haspopup="dialog"
+            aria-expanded="false"
+            data-i18n="buttons.settings"
+          >
+            設定
+          </button>
+          <button
+            class="btn ghost mini"
+            id="help-btn"
+            type="button"
+            aria-haspopup="dialog"
+            aria-expanded="false"
+            data-i18n="buttons.help"
+          >
+            ヘルプ
+          </button>
+        </div>
         <div class="settings-panel" id="settings-panel" role="dialog" aria-modal="false" hidden>
           <div class="settings-head">
             <strong data-i18n="settings.title">設定</strong>
@@ -53,6 +67,41 @@
               </button>
             </div>
           </label>
+          <label class="field settings-field">
+            <span data-i18n="settings.quality">品質モード</span>
+            <div class="segmented setting-segment" id="quality-segment">
+              <button type="button" data-quality="auto" data-i18n="settings.qualityAuto">Auto</button>
+              <button type="button" data-quality="high" data-i18n="settings.qualityHigh">High</button>
+              <button type="button" data-quality="balanced" data-i18n="settings.qualityBalanced">
+                Balanced
+              </button>
+              <button type="button" data-quality="eco" data-i18n="settings.qualityEco">Eco</button>
+            </div>
+          </label>
+          <label class="field toggle settings-field">
+            <span data-i18n="settings.protectMeter">保護メーター</span>
+            <input id="protect-meter-toggle" type="checkbox" />
+            <span class="switch"></span>
+          </label>
+        </div>
+        <div class="settings-panel help-panel" id="help-panel" role="dialog" aria-modal="false" hidden>
+          <div class="settings-head">
+            <strong data-i18n="help.title">ショートカット</strong>
+            <button class="btn ghost mini" id="help-close" type="button" data-i18n="buttons.close">閉じる</button>
+          </div>
+          <ul class="shortcut-list">
+            <li><kbd>Space / K</kbd><span data-i18n="help.playPause">再生 / 一時停止</span></li>
+            <li><kbd>S</kbd><span data-i18n="help.stop">停止</span></li>
+            <li><kbd>← / →</kbd><span data-i18n="help.seek">5秒シーク</span></li>
+            <li><kbd>↑ / ↓</kbd><span data-i18n="help.volume">音量調整</span></li>
+            <li><kbd>F</kbd><span data-i18n="help.fullscreen">ビジュアライザー全画面</span></li>
+            <li><kbd>B</kbd><span data-i18n="help.bypass">3D A/B切替</span></li>
+            <li><kbd>[ / ]</kbd><span data-i18n="help.preset">プリセット切替</span></li>
+            <li><kbd>M</kbd><span data-i18n="help.motion">モーション ON/OFF</span></li>
+            <li><kbd>V</kbd><span data-i18n="help.visualizer">ビジュアライザー ON/OFF</span></li>
+            <li><kbd>Q</kbd><span data-i18n="help.quality">品質モード切替</span></li>
+            <li><kbd>L</kbd><span data-i18n="help.language">言語切替</span></li>
+          </ul>
         </div>
       </div>
       <header class="header">
